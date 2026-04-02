@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+frontend/node_modules/
+server/node_modules/
+shared/node_modules/
+
+# build outputs
+dist/
+build/
+coverage/
+frontend/dist/
+server/dist/
+shared/dist/
+*.tsbuildinfo
+
+# runtime files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# env files
+.env
+.env.*
+!.env.example
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# local cache
+.cache/
+.tmp/
+tmp/
