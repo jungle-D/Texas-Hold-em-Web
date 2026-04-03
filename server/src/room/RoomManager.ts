@@ -8,6 +8,10 @@ export interface RoomState {
   hostPlayerId: string;
   maxPlayers: number;
   actionHistory: string[];
+  /** 局间亮牌窗口结束时间戳；null 表示未在窗口内 */
+  interHandRevealUntil: number | null;
+  /** 玩家是否选择在局间亮牌 */
+  interHandReveal: Record<string, boolean>;
   players: TablePlayer[];
   table: TableStateMachine;
 }
@@ -26,6 +30,8 @@ export class RoomManager {
       hostPlayerId: player.playerId,
       maxPlayers: 6,
       actionHistory: [],
+      interHandRevealUntil: null,
+      interHandReveal: {},
       players,
       table: new TableStateMachine(players)
     };
@@ -56,6 +62,15 @@ export class RoomManager {
   }
 
   snapshot(room: RoomState, _forPlayerId?: string): TableSnapshot {
+    const revealedHands = room.players
+      .filter((p) => p.seatIndex !== null && room.interHandReveal[p.playerId] === true && p.holeCards.length > 0)
+      .map((p) => ({
+        seatIndex: p.seatIndex!,
+        playerId: p.playerId,
+        nickname: p.nickname,
+        cards: [...p.holeCards]
+      }))
+      .sort((a, b) => a.seatIndex - b.seatIndex);
     return {
       roomCode: room.roomCode,
       phase: room.table.phase,
@@ -68,6 +83,8 @@ export class RoomManager {
       pot: room.table.pot,
       board: room.table.board,
       actionHistory: room.actionHistory,
+      interHandRevealUntil: room.interHandRevealUntil,
+      revealedHands,
       players: room.players.map((p) => ({
         playerId: p.playerId,
         nickname: p.nickname,
@@ -93,6 +110,14 @@ export class RoomManager {
       }
     }
     return null;
+  }
+
+  kickPlayer(roomCode: string, hostPlayerId: string, targetPlayerId: string): RoomState | null {
+    const room = this.rooms.get(roomCode);
+    if (!room || room.hostPlayerId !== hostPlayerId) return null;
+    if (hostPlayerId === targetPlayerId) return null;
+    if (!room.players.some((p) => p.playerId === targetPlayerId)) return null;
+    return this.leaveRoom(roomCode, targetPlayerId);
   }
 
   leaveRoom(roomCode: string, playerId: string): RoomState | null {

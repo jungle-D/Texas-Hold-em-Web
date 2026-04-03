@@ -23,6 +23,7 @@ interface TableProps {
   onBet: (amount: number) => void;
   onRaise: (amount: number) => void;
   onAllIn: () => void;
+  onKickPlayer: (targetPlayerId: string) => void;
 }
 
 export function Table({
@@ -44,12 +45,18 @@ export function Table({
   onCall,
   onBet,
   onRaise,
-  onAllIn
+  onAllIn,
+  onKickPlayer
 }: TableProps): JSX.Element {
   const boardSizeRef = useRef(snapshot.board.length);
+  const cancelKickBtnRef = useRef<HTMLButtonElement | null>(null);
+  const confirmKickBtnRef = useRef<HTMLButtonElement | null>(null);
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
   const [pauseTurnHighlight, setPauseTurnHighlight] = useState(false);
+  const [kickConfirmTargetId, setKickConfirmTargetId] = useState<string | null>(null);
   const [hideMyCards, setHideMyCards] = useState(false);
   const [seatActionBadges, setSeatActionBadges] = useState<Record<number, string>>({});
+  const [, setRevealTick] = useState(0);
   const prettyCard = (raw: string): { text: string; isRed: boolean } => {
     const rank = raw[0] ?? "";
     const suit = raw[1] ?? "";
@@ -70,6 +77,46 @@ export function Table({
       ? "当前筹码不足以跟注，只能ALL-IN或弃牌"
       : undefined;
   const isSpectator = !mePlayer || mePlayer.seatIndex === null || mePlayer.stack <= 0;
+  const revealWindowActive = Boolean(
+    snapshot.interHandRevealUntil && Date.now() < snapshot.interHandRevealUntil
+  );
+  const revealSecondsLeft = snapshot.interHandRevealUntil
+    ? Math.max(0, Math.ceil((snapshot.interHandRevealUntil - Date.now()) / 1000))
+    : 0;
+  const revealedTextsBySeat = new Map<number, string[]>();
+  for (const r of snapshot.revealedHands) {
+    revealedTextsBySeat.set(r.seatIndex, r.cards.map((c) => prettyCard(c).text));
+  }
+  useEffect(() => {
+    if (!snapshot.interHandRevealUntil) return;
+    const id = window.setInterval(() => setRevealTick((t) => t + 1), 300);
+    return () => clearInterval(id);
+  }, [snapshot.interHandRevealUntil]);
+  useEffect(() => {
+    if (!kickConfirmTargetId) return;
+    cancelKickBtnRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setKickConfirmTargetId(null);
+      if (e.key !== "Tab") return;
+      const cancelBtn = cancelKickBtnRef.current;
+      const confirmBtn = confirmKickBtnRef.current;
+      if (!cancelBtn || !confirmBtn) return;
+      const active = document.activeElement;
+      if (e.shiftKey && active === cancelBtn) {
+        e.preventDefault();
+        confirmBtn.focus();
+      } else if (!e.shiftKey && active === confirmBtn) {
+        e.preventDefault();
+        cancelBtn.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [kickConfirmTargetId]);
+  useEffect(() => {
+    if (kickConfirmTargetId !== null) return;
+    lastFocusedElementRef.current?.focus();
+  }, [kickConfirmTargetId]);
   useEffect(() => {
     if (snapshot.board.length !== boardSizeRef.current) {
       boardSizeRef.current = snapshot.board.length;
@@ -117,14 +164,26 @@ export function Table({
           : "可开始游戏";
   const hintTone = canStart ? "ok" : snapshot.phase !== "waiting" ? "muted" : "warn";
 
+  const kickConfirmName =
+    kickConfirmTargetId === null
+      ? ""
+      : snapshot.players.find((p) => p.playerId === kickConfirmTargetId)?.nickname ?? "该玩家";
+
   return (
     <main className="screen table">
       <header className="table-head top-pot">
         <h2 className="table-title">房间 {snapshot.roomCode}</h2>
         <div className="head-chip">阶段：{snapshot.phase}</div>
-        <div className="head-chip pot-chip">POT {snapshot.pot}</div>
         <div className="event-banner">{eventBanner || "等待回合广播..."}</div>
       </header>
+
+      {revealWindowActive && (
+        <section className="inter-hand-banner" aria-live="polite">
+          <span>
+            下一局约 <strong>{revealSecondsLeft}</strong> 秒后开始 · 本局已自动亮牌
+          </span>
+        </section>
+      )}
 
       <section className={`hand-panel ${snapshot.phase === "waiting" ? "hidden" : ""}`}>
         <div className="hand-title">你的手牌</div>
@@ -148,24 +207,38 @@ export function Table({
             : <span>等待发牌...</span>}
         </div>
         {isSpectator && (
-          <div className="spectator-note">你当前为观战席（筹码不足或未入座），可查看所有玩家手牌。</div>
+          <div className="spectator-note">
+            你当前为观战席（筹码不足或未入座）。默认不广播他人底牌；结算后会自动亮牌展示。若服务端设置{" "}
+            <code>SPECTATOR_SEE_ALL_HOLES</code> 可开启观战看全员手牌。
+          </div>
         )}
       </section>
 
       <section className={`seat-ring table-layout ${pauseTurnHighlight ? "street-focus" : ""}`}>
         <div className={`center-board ${snapshot.currentTurnSeat === null && snapshot.phase !== "waiting" ? "board-focus" : ""}`}>
-          <div className="board-title">公共牌</div>
-          <div className="board-cards">
-            {snapshot.board.length > 0
-              ? snapshot.board.map((c) => {
-                  const v = prettyCard(c);
+          <div className="center-board-inner">
+            <div className="community-block">
+              <div className="board-title">公共牌区</div>
+              <div className="community-slots" aria-label="五张公共牌位">
+                {Array.from({ length: 5 }, (_, i) => {
+                  const c = snapshot.board[i];
+                  const v = c ? prettyCard(c) : null;
                   return (
-                    <span key={c} className={`board-card ${v.isRed ? "red" : "black"}`}>
-                      {v.text}
-                    </span>
+                    <div key={i} className={`community-slot ${c ? "filled" : ""}`}>
+                      {c && v ? (
+                        <span className={`board-card ${v.isRed ? "red" : "black"}`}>{v.text}</span>
+                      ) : (
+                        <span className="slot-placeholder">·</span>
+                      )}
+                    </div>
                   );
-                })
-              : <span className="board-empty">等待发牌...</span>}
+                })}
+              </div>
+            </div>
+            <div className="pot-block" aria-label="当前底池">
+              <div className="pot-block-label">底池</div>
+              <div className="pot-block-value">{snapshot.pot}</div>
+            </div>
           </div>
         </div>
         {Array.from({ length: 6 }, (_, i) => (
@@ -175,7 +248,14 @@ export function Table({
             player={bySeat.get(i)}
             role={roleBySeat.get(i)}
             actionBadge={seatActionBadges[i]}
+            revealedCardTexts={revealedTextsBySeat.get(i)}
             isTurn={!pauseTurnHighlight && snapshot.currentTurnSeat === i}
+            isHost={me === hostPlayerId}
+            onKickPlayer={(targetPlayerId) => {
+              lastFocusedElementRef.current = document.activeElement as HTMLElement | null;
+              setKickConfirmTargetId(targetPlayerId);
+            }}
+            myPlayerId={me}
             onTakeSeat={onTakeSeat}
           />
         ))}
@@ -226,6 +306,45 @@ export function Table({
         onRaise={(amount) => (canOpenBet ? onBet(amount) : onRaise(amount))}
         onAllIn={onAllIn}
       />
+
+      {kickConfirmTargetId !== null && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setKickConfirmTargetId(null)}
+        >
+          <div
+            className="modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kick-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="kick-dialog-title" className="modal-title">
+              请出玩家
+            </h3>
+            <p className="modal-body">
+              确定将「{kickConfirmName}」请出房间？该玩家所有连接将被断开。
+            </p>
+            <div className="modal-actions">
+              <button ref={cancelKickBtnRef} type="button" onClick={() => setKickConfirmTargetId(null)}>
+                取消
+              </button>
+              <button
+                ref={confirmKickBtnRef}
+                type="button"
+                className="modal-danger"
+                onClick={() => {
+                  onKickPlayer(kickConfirmTargetId);
+                  setKickConfirmTargetId(null);
+                }}
+              >
+                请出
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="history-panel">
         <div className="history-title">操作历史</div>

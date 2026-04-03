@@ -22,6 +22,8 @@ export interface ClientToServerEvents {
   "room.create": (payload: { roomName: string; nickname: string }) => void;
   "room.join": (payload: { roomCode: string; nickname: string; reconnectToken?: string }) => void;
   "room.leave": () => void;
+  /** 房主将指定玩家请出房间 */
+  "room.kick": (payload: { targetPlayerId: string }) => void;
   "seat.take": (payload: { seatIndex: number }) => void;
   "seat.leave": () => void;
   "hand.ready": (payload: { ready: boolean }) => void;
@@ -32,6 +34,8 @@ export interface ClientToServerEvents {
   "action.bet": (payload: { amount: number }) => void;
   "action.raise": (payload: { amount: number }) => void;
   "action.allin": () => void;
+  /** 局间亮牌开关（当前前端默认不发送，服务端在结算后自动亮牌） */
+  "hand.reveal": (payload: { show: boolean }) => void;
   ping: () => void;
 }
 
@@ -59,6 +63,10 @@ export interface TableSnapshot {
   pot: number;
   board: string[];
   actionHistory: string[];
+  /** 本局结束至下一局开始之间的亮牌窗口截止时间（毫秒时间戳），null 表示不在窗口内 */
+  interHandRevealUntil: number | null;
+  /** 结算后亮牌展示：座位号 -> 牌面 */
+  revealedHands: Array<{ seatIndex: number; playerId: string; nickname: string; cards: string[] }>;
   players: PublicPlayer[];
 }
 
@@ -94,6 +102,7 @@ export interface HandEndedPayload {
 
 export interface ServerToClientEvents {
   "room.snapshot": (payload: RoomSnapshotPayload) => void;
+  "room.kicked": (payload: { message: string }) => void;
   "table.snapshot": (payload: TableSnapshot) => void;
   "player.hand": (payload: { cards: string[] }) => void;
   "table.hands": (payload: { hands: Array<{ seatIndex: number; playerId: string; nickname: string; cards: string[] }> }) => void;

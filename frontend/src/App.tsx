@@ -46,7 +46,19 @@ export function App(): JSX.Element {
     socket.on("board.updated", ({ phase }) => {
       if (phase !== "preflop" && phase !== "settlement") setEventBanner(`发公共牌：${phase.toUpperCase()}`);
     });
-    socket.on("hand.ended", () => setEventBanner("本局结束，准备自动开始下一局"));
+    socket.on("hand.ended", () => setEventBanner("本局结束：自动亮牌展示 30 秒，随后自动开始下一局"));
+    socket.on("room.kicked", ({ message }) => {
+      // eslint-disable-next-line no-alert
+      alert(message);
+      setTurnInfo(null);
+      setSnapshot(null);
+      setMyCards([]);
+      setLastActionText("");
+      setEventBanner("");
+      setSpectatorHands([]);
+      setLastAppliedAction(null);
+      setView({ kind: "lobby" });
+    });
     socket.on("error.invalidAction", (err) => {
       // eslint-disable-next-line no-alert
       alert(`${err.code}: ${err.message}`);
@@ -60,6 +72,7 @@ export function App(): JSX.Element {
       socket.off("table.hands");
       socket.off("board.updated");
       socket.off("hand.ended");
+      socket.off("room.kicked");
       socket.off("error.invalidAction");
     };
   }, []);
@@ -112,6 +125,7 @@ export function App(): JSX.Element {
       onBet={(amount) => socket.emit("action.bet", { amount })}
       onRaise={(amount) => socket.emit("action.raise", { amount })}
       onAllIn={() => socket.emit("action.allin")}
+      onKickPlayer={(targetPlayerId) => socket.emit("room.kick", { targetPlayerId })}
     />
   );
 }

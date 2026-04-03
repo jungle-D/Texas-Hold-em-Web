@@ -212,17 +212,20 @@ export class TableStateMachine {
       p.actedThisStreet = false;
     }
     this.toCall = 0;
-    const next = nextStreet(this.street);
-    if (!next) {
-      this.phase = "settlement";
-      this.currentTurnSeat = null;
-      return null;
+    while (true) {
+      const next = nextStreet(this.street);
+      if (!next) {
+        this.phase = "settlement";
+        this.currentTurnSeat = null;
+        return null;
+      }
+      this.street = next;
+      this.phase = this.street;
+      this.board = this.deck.slice(0, getBoardCount(this.street));
+      this.currentTurnSeat = this.findNextActor(this.dealerSeat ?? 0);
+      if (this.currentTurnSeat !== null) return this.currentTurnSeat;
+      // 全员已弃牌/全下时无可行动作，自动继续发下一街直到摊牌结算。
     }
-    this.street = next;
-    this.phase = this.street;
-    this.board = this.deck.slice(0, getBoardCount(this.street));
-    this.currentTurnSeat = this.findNextActor(this.dealerSeat ?? 0);
-    return this.currentTurnSeat;
   }
 
   private buildShowdownResult(): HandResult {

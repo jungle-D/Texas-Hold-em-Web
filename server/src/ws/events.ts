@@ -1,5 +1,6 @@
 import { ActionError, ErrorCodes, type ClientToServerEvents, type ServerToClientEvents } from "@holdem/shared";
 import type { Server, Socket } from "socket.io";
+import { spectatorSeeAllHoles } from "../config.js";
 import { RoomManager } from "../room/RoomManager.js";
 import { legalActions } from "../game/PokerRuleEngine.js";
 
@@ -13,8 +14,11 @@ export function registerGameEvents(
   socket: Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>,
   roomManager: RoomManager
 ): void {
+  const INTER_HAND_REVEAL_MS = 30_000;
   const nextHandTimers = new Map<string, NodeJS.Timeout>();
   const sendInvalid = (code: string, message: string) => socket.emit("error.invalidAction", { code, message });
+  const formatNicknameForHistory = (nickname: string) =>
+    nickname.length > 18 ? `${nickname.slice(0, 18)}…` : nickname;
   const pushHistory = (roomCode: string, text: string) => {
     const room = roomManager.getRoom(roomCode);
     if (!room) return;
@@ -28,6 +32,8 @@ export function registerGameEvents(
       nextHandTimers.delete(roomCode);
       const room = roomManager.getRoom(roomCode);
       if (!room) return;
+      room.interHandRevealUntil = null;
+      room.interHandReveal = {};
       const started = room.table.startHand();
       if (!started) {
         room.table.resetToWaiting();
@@ -38,7 +44,7 @@ export function registerGameEvents(
       pushHistory(roomCode, "自动开始下一局");
       emitRoomSnapshots(roomCode);
       emitTurnStarted(roomCode);
-    }, 2200);
+    }, INTER_HAND_REVEAL_MS);
     nextHandTimers.set(roomCode, timer);
   };
   const emitRoomSnapshots = (roomCode: string) => {
@@ -55,16 +61,20 @@ export function registerGameEvents(
       client.emit("player.hand", { cards: selfPlayer?.inHand ? selfPlayer.holeCards : [] });
       const isSpectator = !selfPlayer || selfPlayer.seatIndex === null || selfPlayer.stack <= 0;
       if (isSpectator) {
-        client.emit("table.hands", {
-          hands: room.players
-            .filter((p) => p.seatIndex !== null)
-            .map((p) => ({
-              seatIndex: p.seatIndex!,
-              playerId: p.playerId,
-              nickname: p.nickname,
-              cards: p.holeCards
-            }))
-        });
+        if (spectatorSeeAllHoles) {
+          client.emit("table.hands", {
+            hands: room.players
+              .filter((p) => p.seatIndex !== null)
+              .map((p) => ({
+                seatIndex: p.seatIndex!,
+                playerId: p.playerId,
+                nickname: p.nickname,
+                cards: p.holeCards
+              }))
+          });
+        } else {
+          client.emit("table.hands", { hands: [] });
+        }
       } else {
         client.emit("table.hands", { hands: [] });
       }
@@ -75,7 +85,8 @@ export function registerGameEvents(
     if (!room || room.table.currentTurnSeat === null) return;
     const current = room.players.find((p) => p.seatIndex === room.table.currentTurnSeat);
     if (!current) return;
-    pushHistory(roomCode, `轮到 Seat ${room.table.currentTurnSeat + 1} (${current.nickname}) 操作`);
+    const nick = formatNicknameForHistory(current.nickname);
+    pushHistory(roomCode, `轮到 Seat ${room.table.currentTurnSeat + 1}（${nick}）操作`);
     io.to(roomCode).emit("turn.started", {
       seatIndex: room.table.currentTurnSeat,
       deadlineAt: Date.now() + 15000,
@@ -100,7 +111,7 @@ export function registerGameEvents(
       reconnectToken
     });
     roomManager.autoSeatPlayer(room, player.playerId);
-    pushHistory(room.roomCode, `${nickname} 创建房间并入座`);
+    pushHistory(room.roomCode, `${formatNicknameForHistory(nickname)} 创建房间并入座`);
     emitRoomSnapshots(room.roomCode);
   });
 
@@ -119,7 +130,7 @@ export function registerGameEvents(
       reconnectToken: joined.reconnectToken
     });
     roomManager.autoSeatPlayer(joined.room, joined.player.playerId);
-    pushHistory(joined.room.roomCode, `${joined.player.nickname} 加入房间并入座`);
+    pushHistory(joined.room.roomCode, `${formatNicknameForHistory(joined.player.nickname)} 加入房间并入座`);
     emitRoomSnapshots(joined.room.roomCode);
   });
 
@@ -131,9 +142,35 @@ export function registerGameEvents(
     const room = roomManager.getRoom(roomCode);
     const who = room?.players.find((p) => p.playerId === playerId)?.nickname ?? "玩家";
     roomManager.leaveRoom(roomCode, playerId);
-    pushHistory(roomCode, `${who} 退出房间`);
+    pushHistory(roomCode, `${formatNicknameForHistory(who)} 退出房间`);
     socket.data.roomCode = undefined;
     socket.data.playerId = undefined;
+    emitRoomSnapshots(roomCode);
+  });
+
+  socket.on("room.kick", ({ targetPlayerId }) => {
+    const roomCode = socket.data.roomCode;
+    const hostId = socket.data.playerId;
+    if (!roomCode || !hostId) return;
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return sendInvalid(ErrorCodes.ROOM_NOT_FOUND, "房间不存在");
+    if (room.hostPlayerId !== hostId) return sendInvalid(ErrorCodes.KICK_NOT_ALLOWED, "仅房主可请出玩家");
+    if (room.table.currentTurnSeat !== null) return sendInvalid(ErrorCodes.KICK_NOT_ALLOWED, "回合进行中，暂不允许请出玩家");
+    if (targetPlayerId === hostId) return sendInvalid(ErrorCodes.KICK_NOT_ALLOWED, "不能请出自己");
+    const target = room.players.find((p) => p.playerId === targetPlayerId);
+    if (!target) return sendInvalid(ErrorCodes.KICK_NOT_ALLOWED, "目标不在房间内");
+    const targetNick = formatNicknameForHistory(target.nickname);
+    const after = roomManager.kickPlayer(roomCode, hostId, targetPlayerId);
+    if (!after) return;
+    pushHistory(roomCode, `房主将 ${targetNick} 请出房间`);
+    for (const [, client] of io.sockets.sockets) {
+      if (client.data.playerId === targetPlayerId) {
+        client.leave(roomCode);
+        client.emit("room.kicked", { message: "你已被房主请出房间" });
+        client.data.roomCode = undefined;
+        client.data.playerId = undefined;
+      }
+    }
     emitRoomSnapshots(roomCode);
   });
 
@@ -141,6 +178,9 @@ export function registerGameEvents(
     const room = socket.data.roomCode ? roomManager.getRoom(socket.data.roomCode) : undefined;
     const playerId = socket.data.playerId;
     if (!room || !playerId) return;
+    if (room.table.phase !== "waiting") {
+      return sendInvalid(ErrorCodes.ACTION_NOT_ALLOWED, "对局进行中不可换座，请等待本局结束");
+    }
     if (seatIndex < 0 || seatIndex > 5) return sendInvalid(ErrorCodes.INVALID_SEAT, "座位号无效");
     if (room.players.some((p) => p.seatIndex === seatIndex)) return sendInvalid(ErrorCodes.SEAT_OCCUPIED, "该座位已被占用");
     const player = room.players.find((p) => p.playerId === playerId);
@@ -160,11 +200,33 @@ export function registerGameEvents(
     emitRoomSnapshots(room.roomCode);
   });
 
+  socket.on("hand.reveal", ({ show }) => {
+    const room = socket.data.roomCode ? roomManager.getRoom(socket.data.roomCode) : undefined;
+    const playerId = socket.data.playerId;
+    if (!room || !playerId) return;
+    if (!room.interHandRevealUntil || Date.now() >= room.interHandRevealUntil) {
+      return sendInvalid(ErrorCodes.REVEAL_NOT_ALLOWED, "亮牌时间已结束或未开放");
+    }
+    const player = room.players.find((p) => p.playerId === playerId);
+    if (!player || player.seatIndex === null) return sendInvalid(ErrorCodes.REVEAL_NOT_ALLOWED, "未入座无法亮牌");
+    if (player.holeCards.length === 0) return sendInvalid(ErrorCodes.REVEAL_NOT_ALLOWED, "本局无手牌可亮");
+    room.interHandReveal[playerId] = show;
+    pushHistory(room.roomCode, `${formatNicknameForHistory(player.nickname)} ${show ? "在牌桌亮牌" : "收回亮牌"}`);
+    emitRoomSnapshots(room.roomCode);
+  });
+
   socket.on("hand.start", () => {
     const room = socket.data.roomCode ? roomManager.getRoom(socket.data.roomCode) : undefined;
     const playerId = socket.data.playerId;
     if (!room || !playerId) return;
     if (room.hostPlayerId !== playerId) return sendInvalid(ErrorCodes.ACTION_NOT_ALLOWED, "仅房主可开始游戏");
+    const pending = nextHandTimers.get(room.roomCode);
+    if (pending) {
+      clearTimeout(pending);
+      nextHandTimers.delete(room.roomCode);
+    }
+    room.interHandRevealUntil = null;
+    room.interHandReveal = {};
     const started = room.table.startHand();
     if (!started) return sendInvalid(ErrorCodes.ACTION_NOT_ALLOWED, "至少2名已准备玩家才能开始");
     pushHistory(room.roomCode, "新一局开始，已发手牌");
@@ -184,7 +246,7 @@ export function registerGameEvents(
       if (acted?.seatIndex !== null) {
         pushHistory(
           room.roomCode,
-          `Seat ${acted.seatIndex + 1} (${acted.nickname}) ${action}${amount && amount > 0 ? ` ${amount}` : ""}`
+          `Seat ${acted.seatIndex + 1}（${formatNicknameForHistory(acted.nickname)}） ${action}${amount && amount > 0 ? ` ${amount}` : ""}`
         );
       }
       io.to(room.roomCode).emit("action.applied", {
@@ -192,11 +254,6 @@ export function registerGameEvents(
         action,
         amount: amount ?? 0,
         nextTurnSeat: result.nextSeat
-      });
-      io.to(room.roomCode).emit("pot.updated", {
-        pot: room.table.pot,
-        toCall: room.table.toCall,
-        minRaise: room.table.minRaise
       });
       io.to(room.roomCode).emit("board.updated", {
         board: room.table.board,
@@ -220,7 +277,16 @@ export function registerGameEvents(
       }
       if (result.handEnded) {
         pushHistory(room.roomCode, `本局结束：${beforePhase} -> ${room.table.phase}`);
+        room.interHandReveal = {};
+        for (const p of room.players) {
+          if (p.seatIndex !== null && p.holeCards.length > 0) {
+            room.interHandReveal[p.playerId] = true;
+          }
+        }
+        room.interHandRevealUntil = Date.now() + INTER_HAND_REVEAL_MS;
+        pushHistory(room.roomCode, "本局自动亮牌展示 30 秒，随后自动开始下一局");
         io.to(room.roomCode).emit("hand.ended", result.handEnded);
+        emitRoomSnapshots(room.roomCode);
         scheduleNextHand(room.roomCode);
       }
     } catch (error) {
