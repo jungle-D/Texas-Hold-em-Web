@@ -2,7 +2,6 @@ import { ActionError, ErrorCodes, type ClientToServerEvents, type ServerToClient
 import type { Server, Socket } from "socket.io";
 import { spectatorSeeAllHoles } from "../config.js";
 import { RoomManager } from "../room/RoomManager.js";
-import { legalActions } from "../game/PokerRuleEngine.js";
 
 interface SocketData {
   roomCode?: string;
@@ -90,7 +89,7 @@ export function registerGameEvents(
     io.to(roomCode).emit("turn.started", {
       seatIndex: room.table.currentTurnSeat,
       deadlineAt: Date.now() + 15000,
-      availableActions: legalActions(current, room.table.toCall),
+      availableActions: room.table.getLegalActionsForSeat(room.table.currentTurnSeat),
       minBet: 20,
       minRaiseTo: room.table.toCall + room.table.minRaise,
       maxRaiseTo: (current.currentBet ?? 0) + (current.stack ?? 0)
@@ -277,6 +276,14 @@ export function registerGameEvents(
       }
       if (result.handEnded) {
         pushHistory(room.roomCode, `本局结束：${beforePhase} -> ${room.table.phase}`);
+        for (const winner of result.handEnded.winners) {
+          const winnerPlayer = room.players.find((p) => p.playerId === winner.playerId);
+          const nick = winnerPlayer ? formatNicknameForHistory(winnerPlayer.nickname) : `Seat ${winner.seatIndex + 1}`;
+          pushHistory(
+            room.roomCode,
+            `🏆 Seat ${winner.seatIndex + 1}（${nick}）赢得 ${winner.amount}，牌型：${winner.handName}`
+          );
+        }
         room.interHandReveal = {};
         for (const p of room.players) {
           if (p.seatIndex !== null && p.holeCards.length > 0) {

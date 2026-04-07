@@ -143,6 +143,12 @@ export class TableStateMachine {
     return { nextSeat: this.currentTurnSeat, handEnded: null };
   }
 
+  getLegalActionsForSeat(seatIndex: number): PlayerActionType[] {
+    const player = this.players.find((p) => p.seatIndex === seatIndex);
+    if (!player) return [];
+    return legalActions(player, this.toCall);
+  }
+
   private commit(player: TablePlayer, amount: number): void {
     const commit = Math.max(0, Math.min(amount, player.stack));
     player.stack -= commit;

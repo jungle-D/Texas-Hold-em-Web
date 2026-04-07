@@ -46,7 +46,16 @@ export function App(): JSX.Element {
     socket.on("board.updated", ({ phase }) => {
       if (phase !== "preflop" && phase !== "settlement") setEventBanner(`发公共牌：${phase.toUpperCase()}`);
     });
-    socket.on("hand.ended", () => setEventBanner("本局结束：自动亮牌展示 30 秒，随后自动开始下一局"));
+    socket.on("hand.ended", (payload) => {
+      if (payload.winners.length > 0) {
+        const winnerText = payload.winners
+          .map((w) => `Seat ${w.seatIndex + 1} ${w.handName}`)
+          .join(" / ");
+        setEventBanner(`本局胜者：${winnerText}（自动亮牌展示 30 秒）`);
+        return;
+      }
+      setEventBanner("本局结束：自动亮牌展示 30 秒，随后自动开始下一局");
+    });
     socket.on("room.kicked", ({ message }) => {
       // eslint-disable-next-line no-alert
       alert(message);
