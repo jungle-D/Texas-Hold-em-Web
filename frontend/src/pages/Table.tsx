@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionBar } from "../components/table/ActionBar";
 import { Seat } from "../components/table/Seat";
 import type { PlayerActionType, TableSnapshot, TurnStartedPayload } from "@holdem/shared";
@@ -9,14 +9,10 @@ interface TableProps {
   snapshot: TableSnapshot;
   turnInfo: TurnStartedPayload | null;
   myCards: string[];
-  lastActionText: string;
-  eventBanner: string;
   lastAppliedAction: { seatIndex: number; action: string; amount: number } | null;
   spectatorHands: Array<{ seatIndex: number; nickname: string; cards: string[] }>;
-  onTakeSeat: (seatIndex: number) => void;
-  onReady: (ready: boolean) => void;
+  winners: Array<{ playerId: string; seatIndex: number; amount: number; handName: string }>;
   onStartHand: () => void;
-  onLeaveRoom: () => void;
   onFold: () => void;
   onCheck: () => void;
   onCall: () => void;
@@ -32,14 +28,10 @@ export function Table({
   snapshot,
   turnInfo,
   myCards,
-  lastActionText,
-  eventBanner,
   lastAppliedAction,
   spectatorHands,
-  onTakeSeat,
-  onReady,
+  winners,
   onStartHand,
-  onLeaveRoom,
   onFold,
   onCheck,
   onCall,
@@ -49,6 +41,7 @@ export function Table({
   onKickPlayer
 }: TableProps): JSX.Element {
   const boardSizeRef = useRef(snapshot.board.length);
+  const phaseRef = useRef(snapshot.phase);
   const cancelKickBtnRef = useRef<HTMLButtonElement | null>(null);
   const confirmKickBtnRef = useRef<HTMLButtonElement | null>(null);
   const lastFocusedElementRef = useRef<HTMLElement | null>(null);
@@ -56,19 +49,38 @@ export function Table({
   const [kickConfirmTargetId, setKickConfirmTargetId] = useState<string | null>(null);
   const [hideMyCards, setHideMyCards] = useState(false);
   const [seatActionBadges, setSeatActionBadges] = useState<Record<number, string>>({});
+  const [historyEntries, setHistoryEntries] = useState<Array<{ text: string; time: string }>>([]);
+  const [historyPos, setHistoryPos] = useState({ x: 16, y: window.innerHeight - 330 });
+  const [historySize, setHistorySize] = useState({ width: 340, height: 160 });
   const [, setRevealTick] = useState(0);
+  const historyListRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   const prettyCard = (raw: string): { text: string; isRed: boolean } => {
     const rank = raw[0] ?? "";
     const suit = raw[1] ?? "";
     const suitMap: Record<string, string> = { s: "♠️", h: "♥️", d: "♦️", c: "♣️" };
     return { text: `${rank}${suitMap[suit] ?? suit}`, isRed: suit === "h" || suit === "d" };
   };
-  const bySeat = new Map(snapshot.players.filter((p) => p.seatIndex !== null).map((p) => [p.seatIndex!, p]));
-  const roleBySeat = new Map<number, "D" | "SB" | "BB">();
-  if (snapshot.dealerSeat !== null) roleBySeat.set(snapshot.dealerSeat, "D");
-  if (snapshot.smallBlindSeat !== null) roleBySeat.set(snapshot.smallBlindSeat, "SB");
-  if (snapshot.bigBlindSeat !== null) roleBySeat.set(snapshot.bigBlindSeat, "BB");
   const mePlayer = snapshot.players.find((p) => p.playerId === me);
+  const mySeatIndex = mePlayer?.seatIndex ?? null;
+  const mapRealSeatToUiSeat = useCallback(
+    (realSeat: number): number => {
+      if (mySeatIndex === null) return realSeat;
+      return ((realSeat - mySeatIndex + 6) % 6 + 3) % 6;
+    },
+    [mySeatIndex]
+  );
+  const bySeat = new Map(
+    snapshot.players
+      .filter((p) => p.seatIndex !== null && p.playerId !== me)
+      .map((p) => [mapRealSeatToUiSeat(p.seatIndex!), p] as const)
+  );
+  const roleBySeat = new Map<number, "D" | "SB" | "BB">();
+  if (snapshot.dealerSeat !== null) roleBySeat.set(mapRealSeatToUiSeat(snapshot.dealerSeat), "D");
+  if (snapshot.smallBlindSeat !== null) roleBySeat.set(mapRealSeatToUiSeat(snapshot.smallBlindSeat), "SB");
+  if (snapshot.bigBlindSeat !== null) roleBySeat.set(mapRealSeatToUiSeat(snapshot.bigBlindSeat), "BB");
+  const winnerByPlayerId = new Map(winners.map((w) => [w.playerId, w]));
   const canAct = Boolean(mePlayer && turnInfo && mePlayer.seatIndex === turnInfo.seatIndex);
   const availableActions: PlayerActionType[] = canAct && turnInfo ? turnInfo.availableActions : [];
   const disabledReason = !canAct
@@ -85,7 +97,7 @@ export function Table({
     : 0;
   const revealedTextsBySeat = new Map<number, string[]>();
   for (const r of snapshot.revealedHands) {
-    revealedTextsBySeat.set(r.seatIndex, r.cards.map((c) => prettyCard(c).text));
+    revealedTextsBySeat.set(mapRealSeatToUiSeat(r.seatIndex), r.cards.map((c) => prettyCard(c).text));
   }
   useEffect(() => {
     if (!snapshot.interHandRevealUntil) return;
@@ -118,8 +130,9 @@ export function Table({
     lastFocusedElementRef.current?.focus();
   }, [kickConfirmTargetId]);
   useEffect(() => {
-    if (snapshot.board.length !== boardSizeRef.current) {
+    if (snapshot.board.length !== boardSizeRef.current || snapshot.phase !== phaseRef.current) {
       boardSizeRef.current = snapshot.board.length;
+      phaseRef.current = snapshot.phase;
       setPauseTurnHighlight(true);
       setSeatActionBadges({});
       const timer = setTimeout(() => setPauseTurnHighlight(false), 900);
@@ -129,12 +142,78 @@ export function Table({
   }, [snapshot.board.length]);
   useEffect(() => {
     if (!lastAppliedAction || lastAppliedAction.seatIndex < 0) return;
+    const uiSeat = mapRealSeatToUiSeat(lastAppliedAction.seatIndex);
     const amountText = lastAppliedAction.amount > 0 ? ` ${lastAppliedAction.amount}` : "";
     setSeatActionBadges((prev) => ({
       ...prev,
-      [lastAppliedAction.seatIndex]: `${lastAppliedAction.action.toUpperCase()}${amountText}`
+      [uiSeat]: `${lastAppliedAction.action.toUpperCase()}${amountText}`
     }));
-  }, [lastAppliedAction]);
+  }, [lastAppliedAction, mapRealSeatToUiSeat]);
+  useEffect(() => {
+    setHistoryEntries((prev) => {
+      const nextTexts = snapshot.actionHistory.slice(-12);
+      if (nextTexts.length === 0) return [];
+
+      const prevTexts = prev.map((p) => p.text);
+      const hasPrefixMatch =
+        nextTexts.length >= prevTexts.length &&
+        prevTexts.every((text, idx) => nextTexts[idx] === text);
+
+      if (hasPrefixMatch) {
+        const appended = nextTexts.slice(prevTexts.length).map((text) => ({
+          text,
+          time: new Date().toLocaleTimeString("zh-CN", { hour12: false })
+        }));
+        return [...prev, ...appended];
+      }
+
+      // 历史被重置或重排时，重建一份稳定时间戳快照。
+      return nextTexts.map((text) => ({
+        text,
+        time: new Date().toLocaleTimeString("zh-CN", { hour12: false })
+      }));
+    });
+  }, [snapshot.actionHistory]);
+  useEffect(() => {
+    if (!historyListRef.current) return;
+    historyListRef.current.scrollTop = historyListRef.current.scrollHeight;
+  }, [historyEntries.length]);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (dragRef.current) {
+        const dx = e.clientX - dragRef.current.startX;
+        const dy = e.clientY - dragRef.current.startY;
+        const maxX = Math.max(8, window.innerWidth - historySize.width - 8);
+        const maxY = Math.max(8, window.innerHeight - historySize.height - 8);
+        setHistoryPos({
+          x: Math.max(8, Math.min(maxX, dragRef.current.startLeft + dx)),
+          y: Math.max(8, Math.min(maxY, dragRef.current.startTop + dy))
+        });
+      }
+      if (resizeRef.current) {
+        const dw = e.clientX - resizeRef.current.startX;
+        const dh = e.clientY - resizeRef.current.startY;
+        const minW = 260;
+        const minH = 110;
+        const maxW = Math.min(520, window.innerWidth - historyPos.x - 8);
+        const maxH = Math.min(360, window.innerHeight - historyPos.y - 8);
+        setHistorySize({
+          width: Math.max(minW, Math.min(maxW, resizeRef.current.startW + dw)),
+          height: Math.max(minH, Math.min(maxH, resizeRef.current.startH + dh))
+        });
+      }
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      resizeRef.current = null;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [historyPos.x, historyPos.y, historySize.width, historySize.height]);
   const readyPlayers = snapshot.players.filter((p) => p.seatIndex !== null && p.isReady).length;
   const canStart = snapshot.phase === "waiting" && me === hostPlayerId && readyPlayers >= 2;
   const bb = 20;
@@ -154,16 +233,6 @@ export function Table({
     const bounded = Math.max(snapshot.minRaise + snapshot.toCall, Math.min(totalTarget, meBet + stack));
     return { key: q.key, label: q.label, amount: bounded, disabled: bounded <= snapshot.toCall || stack <= 0 };
   });
-  const startHint =
-    snapshot.phase !== "waiting"
-      ? "本局进行中"
-      : me !== hostPlayerId
-        ? "仅房主可开始"
-        : readyPlayers < 2
-          ? "至少2名玩家准备"
-          : "可开始游戏";
-  const hintTone = canStart ? "ok" : snapshot.phase !== "waiting" ? "muted" : "warn";
-
   const kickConfirmName =
     kickConfirmTargetId === null
       ? ""
@@ -171,12 +240,9 @@ export function Table({
 
   return (
     <main className="screen table">
-      <header className="table-head top-pot">
+      <header className="table-head top-pot compact-head">
         <h2 className="table-title">房间 {snapshot.roomCode}</h2>
-        <div className="head-chip">阶段：{snapshot.phase}</div>
-        <div className="event-banner">{eventBanner || "等待回合广播..."}</div>
       </header>
-
       {revealWindowActive && (
         <section className="inter-hand-banner" aria-live="polite">
           <span>
@@ -185,39 +251,17 @@ export function Table({
         </section>
       )}
 
-      <section className={`hand-panel ${snapshot.phase === "waiting" ? "hidden" : ""}`}>
-        <div className="hand-title">你的手牌</div>
-        <button className="hide-cards-btn" onClick={() => setHideMyCards((v) => !v)}>
-          {hideMyCards ? "显示手牌" : "隐藏手牌"}
-        </button>
-        <div className="hand-cards">
-          {hideMyCards
-            ? myCards.map((c, idx) => (
-                <span key={`${c}-${idx}`} className="card-face back">🂠</span>
-              ))
-            : myCards.length > 0
-            ? myCards.map((c) => {
-                const v = prettyCard(c);
-                return (
-                  <span key={c} className={`card-face ${v.isRed ? "red" : "black"}`}>
-                    {v.text}
-                  </span>
-                );
-              })
-            : <span>等待发牌...</span>}
-        </div>
-        {isSpectator && (
-          <div className="spectator-note">
-            你当前为观战席（筹码不足或未入座）。默认不广播他人底牌；结算后会自动亮牌展示。若服务端设置{" "}
-            <code>SPECTATOR_SEE_ALL_HOLES</code> 可开启观战看全员手牌。
-          </div>
-        )}
-      </section>
-
       <section className={`seat-ring table-layout ${pauseTurnHighlight ? "street-focus" : ""}`}>
         <div className={`center-board ${snapshot.currentTurnSeat === null && snapshot.phase !== "waiting" ? "board-focus" : ""}`}>
           <div className="center-board-inner">
             <div className="community-block">
+              {snapshot.phase === "waiting" && me === hostPlayerId && (
+                <div className="start-hand-wrap">
+                  <button onClick={onStartHand} disabled={!canStart} className="start-hand-btn">
+                    开始游戏
+                  </button>
+                </div>
+              )}
               <div className="board-title">公共牌区</div>
               <div className="community-slots" aria-label="五张公共牌位">
                 {Array.from({ length: 5 }, (_, i) => {
@@ -249,40 +293,29 @@ export function Table({
             role={roleBySeat.get(i)}
             actionBadge={seatActionBadges[i]}
             revealedCardTexts={revealedTextsBySeat.get(i)}
-            isTurn={!pauseTurnHighlight && snapshot.currentTurnSeat === i}
+            isTurn={!pauseTurnHighlight && snapshot.currentTurnSeat !== null && mapRealSeatToUiSeat(snapshot.currentTurnSeat) === i}
+            isWinner={Boolean(bySeat.get(i) && winnerByPlayerId.has(bySeat.get(i)!.playerId))}
+            winnerHandName={bySeat.get(i) ? winnerByPlayerId.get(bySeat.get(i)!.playerId)?.handName : undefined}
             isHost={me === hostPlayerId}
             onKickPlayer={(targetPlayerId) => {
               lastFocusedElementRef.current = document.activeElement as HTMLElement | null;
               setKickConfirmTargetId(targetPlayerId);
             }}
             myPlayerId={me}
-            onTakeSeat={onTakeSeat}
           />
         ))}
       </section>
 
-      <section className="table-controls">
-        <button onClick={() => onReady(true)} disabled={isSpectator}>准备</button>
-        <button onClick={() => onReady(false)} disabled={isSpectator}>取消准备</button>
-        <button onClick={onStartHand} disabled={!canStart}>
-          开始游戏
-        </button>
-        <button onClick={onLeaveRoom}>退出房间</button>
-        <div className="status-pill">已准备 {readyPlayers}/2（最少）</div>
-        <div className={`status-pill ${hintTone}`}>{startHint}</div>
-        <div className="status-pill muted action-log">{lastActionText || "等待玩家操作..."}</div>
-      </section>
-
       {isSpectator && spectatorHands.length > 0 && (
-        <section className="history-panel">
+        <section className="history-panel history-panel-spectator">
           <div className="history-title">观战：全员手牌</div>
           <div className="history-list">
             {spectatorHands
               .slice()
-              .sort((a, b) => a.seatIndex - b.seatIndex)
+              .sort((a, b) => mapRealSeatToUiSeat(a.seatIndex) - mapRealSeatToUiSeat(b.seatIndex))
               .map((h) => (
                 <div key={`${h.seatIndex}-${h.nickname}`} className="history-item">
-                  Seat {h.seatIndex + 1}（{h.nickname}）：
+                  Seat {mapRealSeatToUiSeat(h.seatIndex) + 1}（{h.nickname}）：
                   {" "}
                   {h.cards.length > 0
                     ? h.cards.map((c) => prettyCard(c).text).join(" ")
@@ -293,19 +326,95 @@ export function Table({
         </section>
       )}
 
-      <ActionBar
-        canAct={canAct}
-        toCall={callNeed}
-        minRaiseTo={snapshot.toCall + snapshot.minRaise}
-        availableActions={availableActions}
-        disabledReason={disabledReason}
-        quickAmounts={quickAmounts}
-        onFold={onFold}
-        onCheck={onCheck}
-        onCall={onCall}
-        onRaise={(amount) => (canOpenBet ? onBet(amount) : onRaise(amount))}
-        onAllIn={onAllIn}
-      />
+      <section
+        className="history-panel history-panel-chat fixed-history"
+        style={{ left: historyPos.x, top: historyPos.y, width: historySize.width, height: historySize.height }}
+      >
+        <div
+          className="history-drag-handle"
+          onMouseDown={(e) => {
+            dragRef.current = {
+              startX: e.clientX,
+              startY: e.clientY,
+              startLeft: historyPos.x,
+              startTop: historyPos.y
+            };
+          }}
+        >
+          消息历史
+        </div>
+        <div ref={historyListRef} className="history-list history-chat-list">
+          {historyEntries.length > 0
+            ? historyEntries.map((entry, idx) => (
+                <div key={`${entry.text}-${idx}`} className="history-item history-chat-item">
+                  <span className="history-bubble">
+                    <span className="history-time">{entry.time}</span>
+                    <span>{entry.text}</span>
+                  </span>
+                </div>
+              ))
+            : <div className="history-item history-chat-item"><span className="history-bubble">暂无历史</span></div>}
+        </div>
+        <button
+          className="history-resize-handle"
+          type="button"
+          aria-label="缩放历史消息框"
+          onMouseDown={(e) => {
+            resizeRef.current = {
+              startX: e.clientX,
+              startY: e.clientY,
+              startW: historySize.width,
+              startH: historySize.height
+            };
+          }}
+        />
+      </section>
+
+      <section className={`floating-hand ${snapshot.phase === "waiting" ? "hidden" : ""}`}>
+        <div className="hand-cards hand-cards-centered hand-cards-floating">
+          {hideMyCards
+            ? myCards.map((c, idx) => (
+                <span key={`${c}-${idx}`} className="card-face back">🂠</span>
+              ))
+            : myCards.length > 0
+            ? myCards.map((c) => {
+                const v = prettyCard(c);
+                return (
+                  <span key={c} className={`card-face ${v.isRed ? "red" : "black"}`}>
+                    {v.text}
+                  </span>
+                );
+              })
+            : <span>等待发牌...</span>}
+          <button className="hide-cards-btn eye-btn inline-eye-btn" onClick={() => setHideMyCards((v) => !v)} title={hideMyCards ? "显示手牌" : "隐藏手牌"}>
+            {hideMyCards ? "👁️" : "🙈"}
+          </button>
+        </div>
+        {isSpectator && (
+          <div className="spectator-note">
+            你当前为观战席（筹码不足或未入座）。默认不广播他人底牌；结算后会自动亮牌展示。若服务端设置{" "}
+            <code>SPECTATOR_SEE_ALL_HOLES</code> 可开启观战看全员手牌。
+          </div>
+        )}
+      </section>
+
+      <section className={`action-dock ${canAct ? "self-turn" : ""}`}>
+        <ActionBar
+          canAct={canAct}
+          myStack={stack}
+          toCall={callNeed}
+          minRaiseTo={snapshot.toCall + snapshot.minRaise}
+          maxRaiseTo={turnInfo?.maxRaiseTo ?? (meBet + stack)}
+          availableActions={availableActions}
+          disabledReason={disabledReason}
+          quickAmounts={quickAmounts}
+          onFold={onFold}
+          onCheck={onCheck}
+          onCall={onCall}
+          onRaise={(amount) => (canOpenBet ? onBet(amount) : onRaise(amount))}
+          onAllIn={onAllIn}
+        />
+      </section>
 
       {kickConfirmTargetId !== null && (
         <div
@@ -346,18 +455,6 @@ export function Table({
         </div>
       )}
 
-      <section className="history-panel">
-        <div className="history-title">操作历史</div>
-        <div className="history-list">
-          {snapshot.actionHistory.length > 0
-            ? snapshot.actionHistory.slice(-12).reverse().map((h, idx) => (
-                <div key={`${h}-${idx}`} className="history-item">
-                  {h}
-                </div>
-              ))
-            : <div className="history-item">暂无历史</div>}
-        </div>
-      </section>
     </main>
   );
 }

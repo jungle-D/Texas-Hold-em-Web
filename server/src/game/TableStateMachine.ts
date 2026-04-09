@@ -207,9 +207,16 @@ export class TableStateMachine {
   }
 
   private isStreetClosed(): boolean {
-    const active = this.players.filter((p) => p.inHand && !p.hasFolded && !p.isAllIn);
-    if (active.length <= 1) return true;
-    return active.every((p) => p.currentBet === this.toCall && p.actedThisStreet === true);
+    const contenders = this.players.filter((p) => p.inHand && !p.hasFolded);
+    if (contenders.length <= 1) return true;
+
+    const actionable = contenders.filter((p) => !p.isAllIn);
+    if (actionable.length === 0) return true;
+
+    // 仍有可行动玩家未补齐到最高注额时，当前街不能结束。
+    if (actionable.some((p) => p.currentBet !== this.toCall)) return false;
+
+    return actionable.every((p) => p.actedThisStreet === true);
   }
 
   private advanceStreetOrSettle(): number | null {

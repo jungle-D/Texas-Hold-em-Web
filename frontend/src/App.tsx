@@ -13,10 +13,9 @@ export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<TableSnapshot | null>(null);
   const [turnInfo, setTurnInfo] = useState<TurnStartedPayload | null>(null);
   const [myCards, setMyCards] = useState<string[]>([]);
-  const [lastActionText, setLastActionText] = useState("");
-  const [eventBanner, setEventBanner] = useState("");
   const [spectatorHands, setSpectatorHands] = useState<Array<{ seatIndex: number; nickname: string; cards: string[] }>>([]);
   const [lastAppliedAction, setLastAppliedAction] = useState<{ seatIndex: number; action: string; amount: number } | null>(null);
+  const [winners, setWinners] = useState<Array<{ playerId: string; seatIndex: number; amount: number; handName: string }>>([]);
 
   useEffect(() => {
     socket.on("room.snapshot", (room) => {
@@ -28,33 +27,24 @@ export function App(): JSX.Element {
         reconnectToken: room.reconnectToken
       });
       localStorage.setItem("holdemReconnectToken", room.reconnectToken);
+      socket.emit("hand.ready", { ready: true });
     });
-    socket.on("table.snapshot", setSnapshot);
+    socket.on("table.snapshot", (nextSnapshot) => {
+      setSnapshot(nextSnapshot);
+      if (nextSnapshot.phase === "dealing" || nextSnapshot.phase === "preflop" || nextSnapshot.phase === "waiting") {
+        setWinners([]);
+      }
+    });
     socket.on("player.hand", ({ cards }) => setMyCards(cards));
     socket.on("turn.started", setTurnInfo);
-    socket.on("turn.started", (t) => {
-      if (t.seatIndex >= 0) setEventBanner(`轮到 Seat ${t.seatIndex + 1} 操作`);
-    });
     socket.on("action.applied", (a) => {
-      setLastActionText(`Seat ${a.seatIndex + 1}: ${a.action}${a.amount > 0 ? ` ${a.amount}` : ""}`);
-      setEventBanner(`Seat ${a.seatIndex + 1} 执行 ${a.action}${a.amount > 0 ? ` ${a.amount}` : ""}`);
       setLastAppliedAction({ seatIndex: a.seatIndex, action: a.action, amount: a.amount });
     });
     socket.on("table.hands", ({ hands }) => {
       setSpectatorHands(hands.map((h) => ({ seatIndex: h.seatIndex, nickname: h.nickname, cards: h.cards })));
     });
-    socket.on("board.updated", ({ phase }) => {
-      if (phase !== "preflop" && phase !== "settlement") setEventBanner(`发公共牌：${phase.toUpperCase()}`);
-    });
     socket.on("hand.ended", (payload) => {
-      if (payload.winners.length > 0) {
-        const winnerText = payload.winners
-          .map((w) => `Seat ${w.seatIndex + 1} ${w.handName}`)
-          .join(" / ");
-        setEventBanner(`本局胜者：${winnerText}（自动亮牌展示 30 秒）`);
-        return;
-      }
-      setEventBanner("本局结束：自动亮牌展示 30 秒，随后自动开始下一局");
+      setWinners(payload.winners);
     });
     socket.on("room.kicked", ({ message }) => {
       // eslint-disable-next-line no-alert
@@ -62,10 +52,9 @@ export function App(): JSX.Element {
       setTurnInfo(null);
       setSnapshot(null);
       setMyCards([]);
-      setLastActionText("");
-      setEventBanner("");
       setSpectatorHands([]);
       setLastAppliedAction(null);
+      setWinners([]);
       setView({ kind: "lobby" });
     });
     socket.on("error.invalidAction", (err) => {
@@ -109,25 +98,11 @@ export function App(): JSX.Element {
       snapshot={snapshot}
       turnInfo={turnInfo}
       myCards={myCards}
-      lastActionText={lastActionText}
-      eventBanner={eventBanner}
       lastAppliedAction={lastAppliedAction}
       spectatorHands={spectatorHands}
+      winners={winners}
       hostPlayerId={view.hostPlayerId}
-      onTakeSeat={(seatIndex) => socket.emit("seat.take", { seatIndex })}
-      onReady={(ready) => socket.emit("hand.ready", { ready })}
       onStartHand={() => socket.emit("hand.start")}
-      onLeaveRoom={() => {
-        socket.emit("room.leave");
-        setTurnInfo(null);
-        setSnapshot(null);
-        setMyCards([]);
-        setLastActionText("");
-        setEventBanner("");
-        setSpectatorHands([]);
-        setLastAppliedAction(null);
-        setView({ kind: "lobby" });
-      }}
       onFold={() => socket.emit("action.fold")}
       onCheck={() => socket.emit("action.check")}
       onCall={() => socket.emit("action.call")}

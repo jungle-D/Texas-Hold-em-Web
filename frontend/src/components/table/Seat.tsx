@@ -8,10 +8,11 @@ interface SeatProps {
   actionBadge?: string;
   /** 结算后自动亮牌，已格式化的牌面文案 */
   revealedCardTexts?: string[];
+  isWinner?: boolean;
+  winnerHandName?: string;
   isHost?: boolean;
   myPlayerId?: string;
   onKickPlayer?: (targetPlayerId: string) => void;
-  onTakeSeat: (seatIndex: number) => void;
 }
 
 export function Seat({
@@ -21,22 +22,22 @@ export function Seat({
   role,
   actionBadge,
   revealedCardTexts,
+  isWinner,
+  winnerHandName,
   isHost,
   myPlayerId,
-  onKickPlayer,
-  onTakeSeat
+  onKickPlayer
 }: SeatProps): JSX.Element {
   if (!player) {
-    return (
-      <button className={`seat empty pos-${seatIndex}`} onClick={() => onTakeSeat(seatIndex)}>
-        + 入座 {seatIndex + 1}
-      </button>
-    );
+    return <></>;
   }
   return (
-    <div className={`seat pos-${seatIndex} ${isTurn ? "turn" : ""} ${player.isReady ? "ready" : ""}`}>
+    <div className={`seat seat-pin pos-${seatIndex} ${isTurn ? "turn turn-pulse" : ""} ${player.isReady ? "ready" : ""} ${isWinner ? "winner" : ""}`}>
+      {isTurn && <div className="turn-signal">行动中</div>}
       <div className="seat-head">
-        <strong>{player.nickname}</strong>
+        <strong className="seat-name">{player.nickname}</strong>
+        <span className="seat-stack">筹码 {player.stack}</span>
+        {isWinner && <span className="winner-tag">WINNER 🏆</span>}
         {isHost && onKickPlayer && myPlayerId && player.playerId !== myPlayerId && (
           <button
             type="button"
@@ -52,9 +53,8 @@ export function Seat({
         )}
       </div>
       {role && <span className={`role-tag ${role.toLowerCase()}`}>{role}</span>}
-      <span>筹码 {player.stack}</span>
-      <span>{player.hasFolded ? "已弃牌" : player.isAllIn ? "ALL-IN" : "进行中"}</span>
-      {player.isReady && <span className="ready-tag">已准备</span>}
+      <span className="seat-state">{player.hasFolded ? "已弃牌" : player.isAllIn ? "ALL-IN" : "进行中"}</span>
+      {isWinner && winnerHandName && <span className="winner-hand">牌型：{winnerHandName}</span>}
       {actionBadge && <span className="action-badge">{actionBadge}</span>}
       {revealedCardTexts && revealedCardTexts.length > 0 && (
         <div className="seat-revealed-cards" aria-label="本局亮牌">

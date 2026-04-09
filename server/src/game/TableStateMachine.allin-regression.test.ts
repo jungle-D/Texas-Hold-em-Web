@@ -78,3 +78,41 @@ test("rule: player cannot check when facing unmatched all-in bet", () => {
     (error: unknown) => error instanceof ActionError && error.code === ErrorCodes.ACTION_NOT_ALLOWED
   );
 });
+
+test("regression: heads-up turn all-in must wait for opponent response", () => {
+  const players: TablePlayer[] = [createPlayer("p1", 0), createPlayer("p2", 1)];
+  const table = new TableStateMachine(players);
+  const started = table.startHand();
+
+  assert.equal(started, true);
+  assert.equal(table.currentTurnSeat, 1);
+
+  // preflop: SB 补齐，BB 过牌，进入 flop
+  table.applyAction("p2", "call");
+  table.applyAction("p1", "check");
+  assert.equal(table.phase, "flop");
+
+  // flop: 双方过牌，进入 turn
+  table.applyAction("p2", "check");
+  table.applyAction("p1", "check");
+  assert.equal(table.phase, "turn");
+  assert.equal(table.currentTurnSeat, 1);
+
+  // turn: p2 全下后，p1 必须面对下注，不能直接过牌或自动封街。
+  const shove = table.applyAction("p2", "allin");
+  assert.equal(shove.handEnded, null);
+  assert.equal(shove.nextSeat, 0);
+  assert.equal(table.currentTurnSeat, 0);
+  assert.equal(table.phase, "turn");
+
+  const p1Legal = table.getLegalActionsForSeat(0);
+  assert.equal(p1Legal.includes("check"), false);
+  assert.equal(p1Legal.includes("fold"), true);
+  // 面对全下时，深码应有 call；若刚好/不足覆盖则会退化为 allin。
+  assert.equal(p1Legal.includes("call") || p1Legal.includes("allin"), true);
+
+  assert.throws(
+    () => table.applyAction("p1", "check"),
+    (error: unknown) => error instanceof ActionError && error.code === ErrorCodes.ACTION_NOT_ALLOWED
+  );
+});
