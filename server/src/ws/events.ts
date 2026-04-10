@@ -1,4 +1,10 @@
-import { ActionError, ErrorCodes, type ClientToServerEvents, type ServerToClientEvents } from "@holdem/shared";
+import {
+  ActionError,
+  ErrorCodes,
+  type ClientToServerEvents,
+  type ServerToClientEvents,
+  type TurnStartedPayload
+} from "@holdem/shared";
 import type { Server, Socket } from "socket.io";
 import { spectatorSeeAllHoles } from "../config.js";
 import { RoomManager } from "../room/RoomManager.js";
@@ -95,6 +101,32 @@ export function registerGameEvents(
       maxRaiseTo: (current.currentBet ?? 0) + (current.stack ?? 0)
     });
   };
+  const emitTurnResync = (roomCode: string) => {
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return;
+    if (room.table.currentTurnSeat === null) {
+      io.to(roomCode).emit("turn.started", {
+        seatIndex: -1,
+        deadlineAt: Date.now(),
+        availableActions: [],
+        minBet: 0,
+        minRaiseTo: 0,
+        maxRaiseTo: 0
+      });
+      return;
+    }
+    const current = room.players.find((p) => p.seatIndex === room.table.currentTurnSeat);
+    if (!current) return;
+    const payload: TurnStartedPayload = {
+      seatIndex: room.table.currentTurnSeat,
+      deadlineAt: Date.now() + 15000,
+      availableActions: room.table.getLegalActionsForSeat(room.table.currentTurnSeat),
+      minBet: 20,
+      minRaiseTo: room.table.toCall + room.table.minRaise,
+      maxRaiseTo: (current.currentBet ?? 0) + (current.stack ?? 0)
+    };
+    io.to(roomCode).emit("turn.started", payload);
+  };
 
   socket.on("room.create", ({ roomName, nickname }) => {
     const { room, player, reconnectToken } = roomManager.createRoom(roomName, nickname);
@@ -129,8 +161,16 @@ export function registerGameEvents(
       reconnectToken: joined.reconnectToken
     });
     roomManager.autoSeatPlayer(joined.room, joined.player.playerId);
-    pushHistory(joined.room.roomCode, `${formatNicknameForHistory(joined.player.nickname)} 加入房间并入座`);
+    if (joined.isReconnect) {
+      pushHistory(joined.room.roomCode, `${formatNicknameForHistory(joined.player.nickname)} 重新连接，已同步牌桌状态`);
+    } else {
+      pushHistory(joined.room.roomCode, `${formatNicknameForHistory(joined.player.nickname)} 加入房间并入座`);
+    }
     emitRoomSnapshots(joined.room.roomCode);
+    if (joined.isReconnect) {
+      // 任一玩家重连成功后，向全房间重播当前回合状态，避免个别客户端因网络抖动错过关键事件。
+      emitTurnResync(joined.room.roomCode);
+    }
   });
 
   socket.on("room.leave", () => {

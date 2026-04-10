@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { ActionBar } from "../components/table/ActionBar";
 import { Seat } from "../components/table/Seat";
 import type { PlayerActionType, TableSnapshot, TurnStartedPayload } from "@holdem/shared";
@@ -20,6 +20,14 @@ interface TableProps {
   onRaise: (amount: number) => void;
   onAllIn: () => void;
   onKickPlayer: (targetPlayerId: string) => void;
+}
+
+interface SettlementFlow {
+  id: string;
+  amount: number;
+  dx: number;
+  dy: number;
+  delayMs: number;
 }
 
 export function Table({
@@ -52,6 +60,7 @@ export function Table({
   const [historyEntries, setHistoryEntries] = useState<Array<{ text: string; ts: number }>>([]);
   const [historyPos, setHistoryPos] = useState({ x: 16, y: window.innerHeight - 330 });
   const [historySize, setHistorySize] = useState({ width: 340, height: 160 });
+  const [settlementFlows, setSettlementFlows] = useState<SettlementFlow[]>([]);
   const [, setRevealTick] = useState(0);
   const historyListRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
@@ -81,6 +90,14 @@ export function Table({
   if (snapshot.smallBlindSeat !== null) roleBySeat.set(mapRealSeatToUiSeat(snapshot.smallBlindSeat), "SB");
   if (snapshot.bigBlindSeat !== null) roleBySeat.set(mapRealSeatToUiSeat(snapshot.bigBlindSeat), "BB");
   const winnerByPlayerId = new Map(winners.map((w) => [w.playerId, w]));
+  const flowOffsetByUiSeat: Record<number, { dx: number; dy: number }> = {
+    0: { dx: 0, dy: -190 },
+    1: { dx: 255, dy: -110 },
+    2: { dx: 255, dy: 110 },
+    3: { dx: 0, dy: 210 },
+    4: { dx: -255, dy: 110 },
+    5: { dx: -255, dy: -110 }
+  };
   const canAct = Boolean(mePlayer && turnInfo && mePlayer.seatIndex === turnInfo.seatIndex);
   const availableActions: PlayerActionType[] = canAct && turnInfo ? turnInfo.availableActions : [];
   const disabledReason = !canAct
@@ -152,6 +169,26 @@ export function Table({
   useEffect(() => {
     setHistoryEntries(snapshot.actionHistory.slice(-12));
   }, [snapshot.actionHistory]);
+  useEffect(() => {
+    if (winners.length === 0) return;
+    const flows = winners
+      .filter((w) => w.amount > 0)
+      .map((winner, index) => {
+        const uiSeat = mapRealSeatToUiSeat(winner.seatIndex);
+        const offset = flowOffsetByUiSeat[uiSeat] ?? { dx: 0, dy: -160 };
+        return {
+          id: `${winner.playerId}-${winner.amount}-${Date.now()}-${index}`,
+          amount: winner.amount,
+          dx: offset.dx,
+          dy: offset.dy,
+          delayMs: index * 130
+        } satisfies SettlementFlow;
+      });
+    if (flows.length === 0) return;
+    setSettlementFlows(flows);
+    const timer = window.setTimeout(() => setSettlementFlows([]), 2100);
+    return () => clearTimeout(timer);
+  }, [winners, mapRealSeatToUiSeat]);
   useEffect(() => {
     if (!historyListRef.current) return;
     historyListRef.current.scrollTop = historyListRef.current.scrollHeight;
@@ -275,6 +312,25 @@ export function Table({
             </div>
           </div>
         </div>
+        {settlementFlows.length > 0 && (
+          <div className="pot-flow-layer" aria-hidden="true">
+            {settlementFlows.map((flow) => (
+              <span
+                key={flow.id}
+                className="pot-flow-chip"
+                style={
+                  {
+                    "--flow-dx": `${flow.dx}px`,
+                    "--flow-dy": `${flow.dy}px`,
+                    "--flow-delay": `${flow.delayMs}ms`
+                  } as CSSProperties
+                }
+              >
+                +{flow.amount}
+              </span>
+            ))}
+          </div>
+        )}
         {Array.from({ length: 6 }, (_, i) => (
           <Seat
             key={i}
@@ -287,7 +343,6 @@ export function Table({
             isWinner={Boolean(bySeat.get(i) && winnerByPlayerId.has(bySeat.get(i)!.playerId))}
             winnerHandName={bySeat.get(i) ? winnerByPlayerId.get(bySeat.get(i)!.playerId)?.handName : undefined}
             isHost={me === hostPlayerId}
-            chipClassName={bySeat.get(i) ? pickChipClass(`${bySeat.get(i)!.playerId}-${i}-${snapshot.pot}`) : undefined}
             onKickPlayer={(targetPlayerId) => {
               lastFocusedElementRef.current = document.activeElement as HTMLElement | null;
               setKickConfirmTargetId(targetPlayerId);

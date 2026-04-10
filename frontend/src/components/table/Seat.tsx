@@ -12,7 +12,6 @@ interface SeatProps {
   winnerHandName?: string;
   isHost?: boolean;
   myPlayerId?: string;
-  chipClassName?: string;
   onKickPlayer?: (targetPlayerId: string) => void;
 }
 
@@ -27,7 +26,6 @@ export function Seat({
   winnerHandName,
   isHost,
   myPlayerId,
-  chipClassName,
   onKickPlayer
 }: SeatProps): JSX.Element {
   if (!player) {
@@ -56,10 +54,6 @@ export function Seat({
       </div>
       {role && <span className={`role-tag ${role.toLowerCase()}`}>{role}</span>}
       <span className="seat-state">{player.hasFolded ? "已弃牌" : player.isAllIn ? "ALL-IN" : "进行中"}</span>
-      <span className="seat-chip-stack" aria-hidden="true">
-        <span className={`seat-chip-dot ${chipClassName ?? "chip-amber"}`} />
-        <span className={`seat-chip-dot ${chipClassName ?? "chip-amber"}`} />
-      </span>
       {isWinner && winnerHandName && <span className="winner-hand">牌型：{winnerHandName}</span>}
       {actionBadge && <span className="action-badge">{actionBadge}</span>}
       {revealedCardTexts && revealedCardTexts.length > 0 && (

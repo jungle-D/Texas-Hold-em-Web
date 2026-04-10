@@ -40,21 +40,25 @@ export class RoomManager {
     return { room, player, reconnectToken: token };
   }
 
-  joinRoom(roomCode: string, nickname: string, reconnectToken?: string): { room: RoomState; player: TablePlayer; reconnectToken: string } | null {
+  joinRoom(
+    roomCode: string,
+    nickname: string,
+    reconnectToken?: string
+  ): { room: RoomState; player: TablePlayer; reconnectToken: string; isReconnect: boolean } | null {
     const room = this.rooms.get(roomCode);
     if (!room) return null;
     if (reconnectToken) {
       const mappedPlayerId = this.reconnectMap.get(reconnectToken);
       if (mappedPlayerId) {
         const player = room.players.find((p) => p.playerId === mappedPlayerId);
-        if (player) return { room, player, reconnectToken };
+        if (player) return { room, player, reconnectToken, isReconnect: true };
       }
     }
     if (room.players.length >= room.maxPlayers) return null;
     const player = this.createPlayer(nickname);
     room.players.push(player);
     const token = this.createReconnectToken(player.playerId);
-    return { room, player, reconnectToken: token };
+    return { room, player, reconnectToken: token, isReconnect: false };
   }
 
   getRoom(roomCode: string): RoomState | undefined {
