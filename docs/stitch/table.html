@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,700;1,6..72,400;1,6..72,700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-tertiary-fixed": "#012016",
+                    "background": "#131313",
+                    "surface-container-highest": "#353534",
+                    "on-primary-fixed-variant": "#574500",
+                    "outline": "#8b928e",
+                    "secondary-fixed-dim": "#ffb4ac",
+                    "on-primary-fixed": "#241a00",
+                    "on-primary-container": "#ae8c0f",
+                    "on-surface-variant": "#c1c8c3",
+                    "secondary": "#ffb4ac",
+                    "on-secondary": "#690007",
+                    "surface-bright": "#ffffff",
+                    "surface-tint": "#e9c349",
+                    "primary-container": "#332700",
+                    "surface-container-low": "#1c1b1b",
+                    "surface-container-high": "#2a2a2a",
+                    "inverse-on-surface": "#313030",
+                    "on-primary": "#3c2f00",
+                    "surface-container": "#201f1f",
+                    "on-tertiary": "#18362b",
+                    "error": "#ffb4ab",
+                    "on-tertiary-container": "#779788",
+                    "on-secondary-container": "#ff9f95",
+                    "error-container": "#93000a",
+                    "surface-container-lowest": "#0e0e0e",
+                    "tertiary": "#accebe",
+                    "tertiary-container": "#0f2e23",
+                    "on-surface": "#e5e2e1",
+                    "outline-variant": "#414844",
+                    "primary": "#e9c349"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Newsreader"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        }
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .poker-table-gradient {
+            background: radial-gradient(circle at center, #1a3d31 0%, #0f2e23 60%, #0e0e0e 100%);
+        }
+        .chip-stack-shadow {
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
+        }
+        @keyframes chip-transfer {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; top: 50%; left: 50%; }
+            100% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; top: 85%; left: 50%; }
+        }
+        .animate-chip-win {
+            animation: chip-transfer 1.2s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+        }
+        /* Custom scrollbar for action history */
+        .history-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .history-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .history-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body overflow-hidden">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full z-50 bg-stone-950/80 backdrop-blur-xl flex justify-between items-center px-6 h-16">
+<div class="flex items-center gap-4">
+<span class="text-2xl font-bold italic text-amber-500 font-serif">房间号 #A102</span>
+</div>
+<div class="flex items-center">
+<div class="flex items-center gap-2 text-amber-400">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-bold font-serif">$1,250,000</span>
+</div>
+</div>
+</header>
+<!-- Main Table Area -->
+<main class="w-full h-screen flex flex-col items-center justify-start pt-32 relative overflow-hidden bg-surface-container-lowest">
+<!-- Table Visual - Positioned higher by using pt-32 and flex-col justify-start -->
+<div class="relative w-[90%] max-w-5xl aspect-[21/9] rounded-[200px] poker-table-gradient border-[12px] border-stone-800 shadow-[inset_0_0_100px_rgba(0,0,0,0.8),0_40px_100px_rgba(0,0,0,0.6)] flex items-center justify-center">
+<!-- Central Pot & Community Cards -->
+<div class="flex flex-col items-center gap-6">
+<!-- Main Pot Area -->
+<div class="relative flex flex-col items-center">
+<div class="text-tertiary font-serif text-sm uppercase tracking-widest opacity-60 mb-2">主奖池</div>
+<div class="flex items-center gap-3 bg-black/30 px-6 py-2 rounded-full backdrop-blur-sm border border-white/5">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full border-2 border-dashed border-white/20 chip-stack-shadow" data-random-chip></div>
+<div class="w-6 h-6 rounded-full border-2 border-dashed border-white/20 chip-stack-shadow" data-random-chip></div>
+<div class="w-6 h-6 rounded-full border-2 border-dashed border-white/20 chip-stack-shadow" data-random-chip></div>
+</div>
+<span class="text-primary font-headline text-2xl font-bold tracking-wider">$48,250</span>
+</div>
+</div>
+<!-- Community Cards -->
+<div class="flex gap-3">
+<!-- Flop -->
+<div class="w-20 h-28 bg-white rounded-md shadow-lg flex flex-col items-center justify-between py-2 border border-stone-300">
+<span class="text-red-600 font-headline text-3xl font-bold">A</span>
+<span class="material-symbols-outlined text-red-600 text-4xl" style="font-variation-settings: 'FILL' 1;">favorite</span>
+<span class="text-red-600 font-headline text-base self-end px-2 rotate-180">A</span>
+</div>
+<div class="w-20 h-28 bg-white rounded-md shadow-lg flex flex-col items-center justify-between py-2 border border-stone-300">
+<span class="text-red-600 font-headline text-3xl font-bold">K</span>
+<span class="material-symbols-outlined text-red-600 text-4xl" style="font-variation-settings: 'FILL' 1;">favorite</span>
+<span class="text-red-600 font-headline text-base self-end px-2 rotate-180">K</span>
+</div>
+<div class="w-20 h-28 bg-white rounded-md shadow-lg flex flex-col items-center justify-between py-2 border border-stone-300">
+<span class="text-stone-900 font-headline text-3xl font-bold">10</span>
+<span class="material-symbols-outlined text-stone-900 text-4xl" style="font-variation-settings: 'FILL' 1;">spa</span>
+<span class="text-stone-900 font-headline text-base self-end px-2 rotate-180">10</span>
+</div>
+<!-- Turn -->
+<div class="w-20 h-28 bg-white rounded-md shadow-lg flex flex-col items-center justify-between py-2 border border-stone-300">
+<span class="text-stone-900 font-headline text-3xl font-bold">J</span>
+<span class="material-symbols-outlined text-stone-900 text-4xl" style="font-variation-settings: 'FILL' 1;">spa</span>
+<span class="text-stone-900 font-headline text-base self-end px-2 rotate-180">J</span>
+</div>
+<!-- River -->
+<div class="w-20 h-28 bg-stone-900/50 border-2 border-dashed border-white/10 rounded-md flex items-center justify-center">
+<span class="material-symbols-outlined text-white/20 text-4xl">style</span>
+</div>
+</div>
+</div>
+<!-- Player 1 (Top Left) -->
+<div class="absolute -top-12 left-1/4 flex flex-col items-center gap-2">
+<div class="bg-surface-container-lowest px-4 py-1.5 rounded-full border border-outline-variant/30 text-xs font-bold text-on-surface shadow-xl">
+                    玩家1: $12.5k
+                </div>
+<div class="flex gap-1">
+<div class="w-6 h-9 bg-white/10 border border-white/5 rounded-sm"></div>
+<div class="w-6 h-9 bg-white/10 border border-white/5 rounded-sm"></div>
+</div>
+</div>
+<!-- Player 2 (Top Right) - SB -->
+<div class="absolute -top-12 right-1/4 flex flex-col items-center gap-2">
+<div class="relative flex flex-col items-center">
+<div class="bg-surface-container-lowest px-4 py-1.5 rounded-full border border-outline-variant/30 text-xs font-bold text-on-surface shadow-xl">
+                        玩家2: $8.9k
+                    </div>
+<div class="absolute -right-10 top-0 w-8 h-8 rounded-full bg-white text-background flex items-center justify-center font-bold text-xs shadow-md border-2 border-stone-800">SB</div>
+</div>
+<div class="flex flex-col items-center mt-2">
+<div class="flex -space-y-3 flex-col items-center">
+<div class="w-5 h-5 rounded-full border border-white/20 chip-stack-shadow" data-random-chip></div>
+<div class="w-5 h-5 rounded-full border border-white/20 chip-stack-shadow" data-random-chip></div>
+</div>
+<span class="text-[10px] font-bold text-red-400 mt-1">$200</span>
+</div>
+</div>
+<!-- Player 3 (Far Right) - BB -->
+<div class="absolute right-[-40px] top-1/2 -translate-y-1/2 flex items-center gap-4">
+<div class="flex flex-row-reverse items-center gap-4">
+<div class="relative">
+<div class="bg-surface-container-lowest px-4 py-2 rounded-full border border-outline-variant/30 text-xs font-bold text-on-surface shadow-xl">
+                            玩家3: $142k
+                        </div>
+<div class="absolute -left-6 -top-4 w-8 h-8 rounded-full bg-stone-100 text-stone-900 flex items-center justify-center font-bold text-xs shadow-md border-2 border-stone-800">BB</div>
+</div>
+<div class="flex flex-col items-end gap-1">
+<div class="flex -space-y-4 flex-col">
+<div class="w-5 h-5 rounded-full border border-white/20 chip-stack-shadow" data-random-chip></div>
+<div class="w-5 h-5 rounded-full border border-white/20 chip-stack-shadow" data-random-chip></div>
+<div class="w-5 h-5 rounded-full border border-white/20 chip-stack-shadow" data-random-chip></div>
+</div>
+<span class="text-[10px] font-bold text-blue-400">$400</span>
+</div>
+</div>
+</div>
+<!-- Player 5 (Left) -->
+<div class="absolute left-[-40px] top-1/2 -translate-y-1/2 flex items-center gap-4">
+<div class="flex items-center gap-4">
+<div class="bg-surface-container-lowest px-4 py-2 rounded-full border border-outline-variant/30 text-xs font-bold text-on-surface shadow-xl">
+                        玩家5: $65.4k
+                    </div>
+<div class="flex flex-col gap-1">
+<div class="flex -space-y-4 flex-col">
+<div class="w-5 h-5 rounded-full border border-white/20 chip-stack-shadow" data-random-chip></div>
+<div class="w-5 h-5 rounded-full border border-white/20 chip-stack-shadow" data-random-chip></div>
+</div>
+<span class="text-[10px] font-bold text-green-400">$800</span>
+</div>
+</div>
+</div>
+<!-- Dealer Button (Center Bottom context) -->
+<div class="absolute bottom-[-20px] left-1/2 -translate-x-1/2 -translate-y-full w-10 h-10 rounded-full bg-white text-stone-900 flex items-center justify-center font-black text-lg shadow-[0_4px_10px_rgba(0,0,0,0.5)] border-2 border-stone-300 z-30">D</div>
+</div>
+<!-- Main Player (Lower Part of screen, above action bar) -->
+<div class="mt-20 flex flex-col items-center gap-4 relative z-40">
+<div class="relative">
+<div class="absolute -inset-6 bg-amber-500/30 blur-2xl rounded-full animate-pulse"></div>
+<div class="relative bg-surface-container-highest px-8 py-2 rounded-full border-2 border-amber-500 shadow-xl z-10 flex flex-col items-center">
+<span class="text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">胜利者</span>
+<span class="text-sm font-black text-on-surface">尊贵玩家: $1.25M</span>
+</div>
+</div>
+<!-- Hole Cards -->
+<div class="flex gap-3 -mt-2 scale-110">
+<div class="w-24 h-32 bg-white rounded-lg shadow-2xl flex flex-col items-center justify-between py-3 border border-stone-300 transform -rotate-6">
+<span class="text-red-600 font-headline text-4xl font-bold">Q</span>
+<span class="material-symbols-outlined text-red-600 text-5xl" style="font-variation-settings: 'FILL' 1;">favorite</span>
+<span class="text-red-600 font-headline text-base self-end px-3 rotate-180">Q</span>
+</div>
+<div class="w-24 h-32 bg-white rounded-lg shadow-2xl flex flex-col items-center justify-between py-3 border border-stone-300 transform rotate-6">
+<span class="text-red-600 font-headline text-4xl font-bold">Q</span>
+<span class="material-symbols-outlined text-red-600 text-5xl" style="font-variation-settings: 'FILL' 1;">diamond</span>
+<span class="text-red-600 font-headline text-base self-end px-3 rotate-180">Q</span>
+</div>
+</div>
+</div>
+<!-- Action History Panel (Bottom-left corner, above action bar) -->
+<div class="fixed bottom-24 left-8 w-72 h-40 bg-black/40 backdrop-blur-md rounded-xl border border-white/10 flex flex-col overflow-hidden z-50">
+<div class="px-3 py-2 border-b border-white/5 bg-white/5 flex items-center justify-between">
+<span class="text-[10px] font-bold text-stone-400 uppercase tracking-wider">操作历史</span>
+<span class="material-symbols-outlined text-xs text-stone-500">list</span>
+</div>
+<div class="flex-1 p-3 overflow-y-auto history-scroll flex flex-col gap-2 text-[11px]">
+<div class="flex gap-2 items-baseline">
+<span class="text-white/40">14:02</span>
+<span class="text-stone-300">玩家1: <span class="text-on-surface">弃牌</span></span>
+</div>
+<div class="flex gap-2 items-baseline">
+<span class="text-white/40">14:02</span>
+<span class="text-stone-300">玩家2 (SB): <span class="text-on-surface">跟注 $200</span></span>
+</div>
+<div class="flex gap-2 items-baseline">
+<span class="text-white/40">14:03</span>
+<span class="text-stone-300">玩家3 (BB): <span class="text-on-surface">过牌</span></span>
+</div>
+<div class="flex gap-2 items-baseline">
+<span class="text-white/40">14:03</span>
+<span class="text-stone-300">玩家5: <span class="text-on-surface">跟注 $800</span></span>
+</div>
+<div class="flex gap-2 items-baseline">
+<span class="text-white/40">14:04</span>
+<span class="text-stone-300 font-bold">尊贵玩家 (D): <span class="text-amber-400">加注 $1,200</span></span>
+</div>
+</div>
+</div>
+<!-- Action Bar (Footer) -->
+<div class="fixed bottom-0 w-full bg-surface-container-high/90 backdrop-blur-2xl border-t border-white/5 px-8 py-6 flex items-center justify-start gap-10 z-50">
+<div class="flex items-center gap-4">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase tracking-tighter text-stone-500 font-bold">当前状态</span>
+<span class="text-tertiary font-bold">等待下一手牌...</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-8 py-3 rounded-xl font-bold text-on-surface-variant hover:bg-white/5 transition-all">弃牌</button>
+<button class="px-10 py-3 rounded-xl font-bold bg-surface-container-highest text-primary border border-primary/20 hover:border-primary/50 transition-all shadow-lg">过牌 / 跟注</button>
+<div class="flex items-center bg-surface-container-lowest rounded-xl p-1 border border-white/5">
+<button class="px-4 py-2 text-xs font-bold text-on-surface/60 hover:text-primary transition-colors">1/2 底池</button>
+<button class="px-4 py-2 text-xs font-bold text-on-surface/60 hover:text-primary transition-colors">2/3 底池</button>
+<button class="px-4 py-2 text-xs font-bold bg-primary/10 text-primary rounded-lg border border-primary/20">3X 大盲</button>
+<button class="px-4 py-2 text-xs font-bold text-on-surface/60 hover:text-primary transition-colors">全下</button>
+</div>
+<button class="px-12 py-3 rounded-xl font-bold bg-gradient-to-r from-amber-400 to-amber-600 text-on-primary shadow-[0_10px_30px_rgba(233,195,73,0.3)] hover:scale-105 active:scale-95 transition-all">加注 $1,200</button>
+</div>
+</div>
+</main>
+<script>
+    const chipColorPalette = [
+        "bg-red-600",
+        "bg-blue-600",
+        "bg-green-600",
+        "bg-amber-500",
+        "bg-violet-600",
+        "bg-rose-500"
+    ];
+
+    document.querySelectorAll("[data-random-chip]").forEach((chip) => {
+        const randomColor = chipColorPalette[Math.floor(Math.random() * chipColorPalette.length)];
+        chip.classList.add(randomColor);
+    });
+</script>
+</body></html>

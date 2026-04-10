@@ -49,7 +49,7 @@ export function Table({
   const [kickConfirmTargetId, setKickConfirmTargetId] = useState<string | null>(null);
   const [hideMyCards, setHideMyCards] = useState(false);
   const [seatActionBadges, setSeatActionBadges] = useState<Record<number, string>>({});
-  const [historyEntries, setHistoryEntries] = useState<Array<{ text: string; time: string }>>([]);
+  const [historyEntries, setHistoryEntries] = useState<Array<{ text: string; ts: number }>>([]);
   const [historyPos, setHistoryPos] = useState({ x: 16, y: window.innerHeight - 330 });
   const [historySize, setHistorySize] = useState({ width: 340, height: 160 });
   const [, setRevealTick] = useState(0);
@@ -150,29 +150,7 @@ export function Table({
     }));
   }, [lastAppliedAction, mapRealSeatToUiSeat]);
   useEffect(() => {
-    setHistoryEntries((prev) => {
-      const nextTexts = snapshot.actionHistory.slice(-12);
-      if (nextTexts.length === 0) return [];
-
-      const prevTexts = prev.map((p) => p.text);
-      const hasPrefixMatch =
-        nextTexts.length >= prevTexts.length &&
-        prevTexts.every((text, idx) => nextTexts[idx] === text);
-
-      if (hasPrefixMatch) {
-        const appended = nextTexts.slice(prevTexts.length).map((text) => ({
-          text,
-          time: new Date().toLocaleTimeString("zh-CN", { hour12: false })
-        }));
-        return [...prev, ...appended];
-      }
-
-      // 历史被重置或重排时，重建一份稳定时间戳快照。
-      return nextTexts.map((text) => ({
-        text,
-        time: new Date().toLocaleTimeString("zh-CN", { hour12: false })
-      }));
-    });
+    setHistoryEntries(snapshot.actionHistory.slice(-12));
   }, [snapshot.actionHistory]);
   useEffect(() => {
     if (!historyListRef.current) return;
@@ -225,7 +203,7 @@ export function Table({
   const quickAdds = [
     { key: "3bb", label: "3大盲", add: bb * 3 },
     { key: "half", label: "半池", add: Math.floor(snapshot.pot / 2) },
-    { key: "full", label: "满池", add: snapshot.pot },
+    { key: "full", label: "2/3底池", add: Math.floor((snapshot.pot * 2) / 3) },
     { key: "max", label: "最大", add: potCapAdd }
   ];
   const quickAmounts = quickAdds.map((q) => {
@@ -237,11 +215,18 @@ export function Table({
     kickConfirmTargetId === null
       ? ""
       : snapshot.players.find((p) => p.playerId === kickConfirmTargetId)?.nickname ?? "该玩家";
+  const chipColorClasses = ["chip-red", "chip-blue", "chip-green", "chip-amber", "chip-violet", "chip-rose"];
+  const pickChipClass = (seed: string): string => {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    return chipColorClasses[hash % chipColorClasses.length];
+  };
+  const potChipClasses = [0, 1, 2].map((i) => pickChipClass(`${snapshot.roomCode}-${snapshot.pot}-${snapshot.board.length}-${i}`));
 
   return (
     <main className="screen table">
       <header className="table-head top-pot compact-head">
-        <h2 className="table-title">房间 {snapshot.roomCode}</h2>
+        <h2 className="table-title">房间号 #{snapshot.roomCode}</h2>
       </header>
       {revealWindowActive && (
         <section className="inter-hand-banner" aria-live="polite">
@@ -281,6 +266,11 @@ export function Table({
             </div>
             <div className="pot-block" aria-label="当前底池">
               <div className="pot-block-label">底池</div>
+              <div className="pot-chips" aria-hidden="true">
+                {potChipClasses.map((chipClass, idx) => (
+                  <span key={`${chipClass}-${idx}`} className={`pot-chip-dot ${chipClass}`} />
+                ))}
+              </div>
               <div className="pot-block-value">{snapshot.pot}</div>
             </div>
           </div>
@@ -297,6 +287,7 @@ export function Table({
             isWinner={Boolean(bySeat.get(i) && winnerByPlayerId.has(bySeat.get(i)!.playerId))}
             winnerHandName={bySeat.get(i) ? winnerByPlayerId.get(bySeat.get(i)!.playerId)?.handName : undefined}
             isHost={me === hostPlayerId}
+            chipClassName={bySeat.get(i) ? pickChipClass(`${bySeat.get(i)!.playerId}-${i}-${snapshot.pot}`) : undefined}
             onKickPlayer={(targetPlayerId) => {
               lastFocusedElementRef.current = document.activeElement as HTMLElement | null;
               setKickConfirmTargetId(targetPlayerId);
@@ -346,9 +337,9 @@ export function Table({
         <div ref={historyListRef} className="history-list history-chat-list">
           {historyEntries.length > 0
             ? historyEntries.map((entry, idx) => (
-                <div key={`${entry.text}-${idx}`} className="history-item history-chat-item">
+                <div key={`${entry.ts}-${entry.text}-${idx}`} className="history-item history-chat-item">
                   <span className="history-bubble">
-                    <span className="history-time">{entry.time}</span>
+                    <span className="history-time">{new Date(entry.ts).toLocaleTimeString("zh-CN", { hour12: false })}</span>
                     <span>{entry.text}</span>
                   </span>
                 </div>

@@ -21,7 +21,7 @@ export function registerGameEvents(
   const pushHistory = (roomCode: string, text: string) => {
     const room = roomManager.getRoom(roomCode);
     if (!room) return;
-    room.actionHistory.push(text);
+    room.actionHistory.push({ text, ts: Date.now() });
     if (room.actionHistory.length > 80) room.actionHistory.shift();
   };
   const scheduleNextHand = (roomCode: string) => {

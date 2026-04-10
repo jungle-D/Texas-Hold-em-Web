@@ -62,7 +62,7 @@ export interface TableSnapshot {
   toCall: number;
   pot: number;
   board: string[];
-  actionHistory: string[];
+  actionHistory: Array<{ text: string; ts: number }>;
   /** 本局结束至下一局开始之间的亮牌窗口截止时间（毫秒时间戳），null 表示不在窗口内 */
   interHandRevealUntil: number | null;
   /** 结算后亮牌展示：座位号 -> 牌面 */

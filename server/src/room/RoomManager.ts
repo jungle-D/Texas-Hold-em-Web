@@ -7,7 +7,7 @@ export interface RoomState {
   roomName: string;
   hostPlayerId: string;
   maxPlayers: number;
-  actionHistory: string[];
+  actionHistory: Array<{ text: string; ts: number }>;
   /** 局间亮牌窗口结束时间戳；null 表示未在窗口内 */
   interHandRevealUntil: number | null;
   /** 玩家是否选择在局间亮牌 */
