@@ -69,7 +69,7 @@ export function ActionBar({
   };
   const onRaiseByQuick = () => {
     if (!selectedQuick) return;
-    if (selectedQuick.key === "max" && can("allin")) {
+    if (selectedQuick.key === "max" && !canRaiseOrBet && can("allin")) {
       onAllIn();
       return;
     }
@@ -85,6 +85,7 @@ export function ActionBar({
     }
     onRaiseByQuick();
   };
+  const quickAllInMode = raiseMode === "quick" && Boolean(selectedQuick && selectedQuick.key === "max" && !canRaiseOrBet && can("allin"));
 
   return (
     <section className={`action-bar ${canAct ? "active-turn" : ""}`}>
@@ -113,7 +114,7 @@ export function ActionBar({
                 <span className="quick-selection-glider" aria-hidden="true" />
                 {quickAmounts.map((q) => {
                   const selected = q.key === selectedQuickKey;
-                  const label = q.key === "half" ? "1/2 底池" : q.key === "full" ? "2/3 底池" : q.key === "3bb" ? "3X 大盲" : "全下";
+                  const label = q.label;
                   return (
                     <button
                       key={q.key}
@@ -165,7 +166,9 @@ export function ActionBar({
             onClick={onRaiseByCurrentMode}
             title={getHint("当前不可下注/加注（可能筹码不足或规则限制）")}
           >
-            加注 {raiseMode === "custom" ? customRaiseTo : (selectedQuick ? selectedQuick.amount : 0)}
+            {quickAllInMode
+              ? `ALL-IN ${myStack}`
+              : `加注 ${raiseMode === "custom" ? customRaiseTo : (selectedQuick ? selectedQuick.amount : 0)}`}
           </button>
         </div>
       </div>

@@ -30,25 +30,33 @@ export function registerGameEvents(
     room.actionHistory.push({ text, ts: Date.now() });
     if (room.actionHistory.length > 80) room.actionHistory.shift();
   };
+  const tryStartNextHand = (roomCode: string, source: "timer" | "fast-ready") => {
+    const pending = nextHandTimers.get(roomCode);
+    if (pending) {
+      clearTimeout(pending);
+      nextHandTimers.delete(roomCode);
+    }
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return;
+    room.interHandRevealUntil = null;
+    room.interHandReveal = {};
+    room.fastReady = {};
+    const started = room.table.startHand();
+    if (!started) {
+      room.table.resetToWaiting();
+      pushHistory(roomCode, "等待至少2名已准备玩家开始下一局");
+      emitRoomSnapshots(roomCode);
+      return;
+    }
+    pushHistory(roomCode, source === "fast-ready" ? "全员准备完成，立即开始下一局" : "自动开始下一局");
+    emitRoomSnapshots(roomCode);
+    emitTurnStarted(roomCode);
+  };
   const scheduleNextHand = (roomCode: string) => {
     const prev = nextHandTimers.get(roomCode);
     if (prev) clearTimeout(prev);
     const timer = setTimeout(() => {
-      nextHandTimers.delete(roomCode);
-      const room = roomManager.getRoom(roomCode);
-      if (!room) return;
-      room.interHandRevealUntil = null;
-      room.interHandReveal = {};
-      const started = room.table.startHand();
-      if (!started) {
-        room.table.resetToWaiting();
-        pushHistory(roomCode, "等待至少2名已准备玩家开始下一局");
-        emitRoomSnapshots(roomCode);
-        return;
-      }
-      pushHistory(roomCode, "自动开始下一局");
-      emitRoomSnapshots(roomCode);
-      emitTurnStarted(roomCode);
+      tryStartNextHand(roomCode, "timer");
     }, INTER_HAND_REVEAL_MS);
     nextHandTimers.set(roomCode, timer);
   };
@@ -213,6 +221,42 @@ export function registerGameEvents(
     emitRoomSnapshots(roomCode);
   });
 
+  socket.on("chat.send", ({ message }) => {
+    const roomCode = socket.data.roomCode;
+    const playerId = socket.data.playerId;
+    if (!roomCode || !playerId) return;
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return sendInvalid(ErrorCodes.ROOM_NOT_FOUND, "房间不存在");
+    const player = room.players.find((p) => p.playerId === playerId);
+    if (!player) return sendInvalid(ErrorCodes.ACTION_NOT_ALLOWED, "玩家不存在");
+    const normalized = message.replace(/\s+/g, " ").trim();
+    if (!normalized) return;
+    const limited = normalized.slice(0, 120);
+    io.to(roomCode).emit("chat.message", { playerId: player.playerId, message: limited, ts: Date.now() });
+  });
+
+  socket.on("hand.fastReady", ({ ready }) => {
+    const roomCode = socket.data.roomCode;
+    const playerId = socket.data.playerId;
+    if (!roomCode || !playerId) return;
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return sendInvalid(ErrorCodes.ROOM_NOT_FOUND, "房间不存在");
+    if (!room.interHandRevealUntil || Date.now() >= room.interHandRevealUntil) {
+      return sendInvalid(ErrorCodes.ACTION_NOT_ALLOWED, "当前不在局间准备阶段");
+    }
+    const player = room.players.find((p) => p.playerId === playerId);
+    if (!player || player.seatIndex === null || player.stack <= 0) {
+      return sendInvalid(ErrorCodes.ACTION_NOT_ALLOWED, "仅在座玩家可操作准备");
+    }
+    room.fastReady[playerId] = ready;
+    const activePlayers = room.players.filter((p) => p.seatIndex !== null && p.stack > 0);
+    const readyCount = activePlayers.filter((p) => room.fastReady[p.playerId] === true).length;
+    emitRoomSnapshots(roomCode);
+    if (activePlayers.length >= 2 && readyCount === activePlayers.length) {
+      tryStartNextHand(roomCode, "fast-ready");
+    }
+  });
+
   socket.on("seat.take", ({ seatIndex }) => {
     const room = socket.data.roomCode ? roomManager.getRoom(socket.data.roomCode) : undefined;
     const playerId = socket.data.playerId;
@@ -266,6 +310,7 @@ export function registerGameEvents(
     }
     room.interHandRevealUntil = null;
     room.interHandReveal = {};
+    room.fastReady = {};
     const started = room.table.startHand();
     if (!started) return sendInvalid(ErrorCodes.ACTION_NOT_ALLOWED, "至少2名已准备玩家才能开始");
     pushHistory(room.roomCode, "新一局开始，已发手牌");
@@ -325,6 +370,7 @@ export function registerGameEvents(
           );
         }
         room.interHandReveal = {};
+        room.fastReady = {};
         for (const p of room.players) {
           if (p.seatIndex !== null && p.holeCards.length > 0) {
             room.interHandReveal[p.playerId] = true;

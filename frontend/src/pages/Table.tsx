@@ -12,6 +12,7 @@ interface TableProps {
   lastAppliedAction: { seatIndex: number; action: string; amount: number } | null;
   spectatorHands: Array<{ seatIndex: number; nickname: string; cards: string[] }>;
   winners: Array<{ playerId: string; seatIndex: number; amount: number; handName: string }>;
+  seatChats: Record<string, Array<{ id: string; message: string; ts: number }>>;
   onStartHand: () => void;
   onFold: () => void;
   onCheck: () => void;
@@ -20,6 +21,8 @@ interface TableProps {
   onRaise: (amount: number) => void;
   onAllIn: () => void;
   onKickPlayer: (targetPlayerId: string) => void;
+  onFastReady: (ready: boolean) => void;
+  onSendChat: (message: string) => void;
 }
 
 interface SettlementFlow {
@@ -39,6 +42,7 @@ export function Table({
   lastAppliedAction,
   spectatorHands,
   winners,
+  seatChats,
   onStartHand,
   onFold,
   onCheck,
@@ -46,7 +50,9 @@ export function Table({
   onBet,
   onRaise,
   onAllIn,
-  onKickPlayer
+  onKickPlayer,
+  onFastReady,
+  onSendChat
 }: TableProps): JSX.Element {
   const boardSizeRef = useRef(snapshot.board.length);
   const phaseRef = useRef(snapshot.phase);
@@ -58,11 +64,15 @@ export function Table({
   const [hideMyCards, setHideMyCards] = useState(false);
   const [seatActionBadges, setSeatActionBadges] = useState<Record<number, string>>({});
   const [historyEntries, setHistoryEntries] = useState<Array<{ text: string; ts: number }>>([]);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessage, setChatMessage] = useState("");
+  const [copiedRoom, setCopiedRoom] = useState(false);
   const [historyPos, setHistoryPos] = useState({ x: 16, y: window.innerHeight - 330 });
   const [historySize, setHistorySize] = useState({ width: 340, height: 160 });
   const [settlementFlows, setSettlementFlows] = useState<SettlementFlow[]>([]);
   const [, setRevealTick] = useState(0);
   const historyListRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
   const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   const prettyCard = (raw: string): { text: string; isRed: boolean } => {
@@ -99,7 +109,13 @@ export function Table({
     5: { dx: -255, dy: -110 }
   };
   const canAct = Boolean(mePlayer && turnInfo && mePlayer.seatIndex === turnInfo.seatIndex);
+  const isMeWinner = winners.some((winner) => winner.playerId === me);
   const availableActions: PlayerActionType[] = canAct && turnInfo ? turnInfo.availableActions : [];
+  const canOnlyAllIn =
+    canAct &&
+    availableActions.includes("allin") &&
+    !availableActions.includes("raise") &&
+    !availableActions.includes("bet");
   const disabledReason = !canAct
     ? "当前不是你的回合"
     : availableActions.includes("allin") && !availableActions.includes("call")
@@ -116,6 +132,11 @@ export function Table({
   for (const r of snapshot.revealedHands) {
     revealedTextsBySeat.set(mapRealSeatToUiSeat(r.seatIndex), r.cards.map((c) => prettyCard(c).text));
   }
+  const activeSeatedPlayers = snapshot.players.filter((p) => p.seatIndex !== null && p.stack > 0);
+  const fastReadyCount = activeSeatedPlayers.filter((p) => snapshot.fastReadyPlayerIds.includes(p.playerId)).length;
+  const isMyFastReady = mePlayer ? snapshot.fastReadyPlayerIds.includes(mePlayer.playerId) : false;
+  const canFastReady = Boolean(mePlayer && mePlayer.seatIndex !== null && mePlayer.stack > 0);
+  const myChatMessages = (seatChats[me] ?? []).map((item) => item.message);
   useEffect(() => {
     if (!snapshot.interHandRevealUntil) return;
     const id = window.setInterval(() => setRevealTick((t) => t + 1), 300);
@@ -194,6 +215,47 @@ export function Table({
     historyListRef.current.scrollTop = historyListRef.current.scrollHeight;
   }, [historyEntries.length]);
   useEffect(() => {
+    if (!chatOpen) return;
+    chatInputRef.current?.focus();
+  }, [chatOpen]);
+  useEffect(() => {
+    const onGlobalKeydown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter") return;
+      if (kickConfirmTargetId !== null) return;
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      const tagName = target.tagName.toLowerCase();
+      const editing =
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "button" ||
+        tagName === "select" ||
+        tagName === "a" ||
+        (target as HTMLElement).isContentEditable;
+      if (editing) return;
+      event.preventDefault();
+      setChatOpen(true);
+    };
+    window.addEventListener("keydown", onGlobalKeydown);
+    return () => window.removeEventListener("keydown", onGlobalKeydown);
+  }, [kickConfirmTargetId]);
+  const submitChat = () => {
+    const trimmed = chatMessage.trim();
+    if (!trimmed) return;
+    onSendChat(trimmed);
+    setChatMessage("");
+    setChatOpen(false);
+  };
+  const copyRoomCode = async () => {
+    try {
+      await navigator.clipboard.writeText(snapshot.roomCode);
+      setCopiedRoom(true);
+      window.setTimeout(() => setCopiedRoom(false), 1400);
+    } catch {
+      setCopiedRoom(false);
+    }
+  };
+  useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (dragRef.current) {
         const dx = e.clientX - dragRef.current.startX;
@@ -238,16 +300,20 @@ export function Table({
   const stack = mePlayer?.stack ?? 0;
   const potCapAdd = snapshot.pot + callNeed + snapshot.toCall;
   const quickAdds = [
-    { key: "3bb", label: "3大盲", add: bb * 3 },
-    { key: "half", label: "半池", add: Math.floor(snapshot.pot / 2) },
-    { key: "full", label: "2/3底池", add: Math.floor((snapshot.pot * 2) / 3) },
-    { key: "max", label: "最大", add: potCapAdd }
+    { key: "3bb", label: "3X 大盲", add: bb * 3 },
+    { key: "half", label: "1/2 底池", add: Math.floor(snapshot.pot / 2) },
+    { key: "full", label: "2/3 底池", add: Math.floor((snapshot.pot * 2) / 3) },
+    { key: "max", label: canOnlyAllIn ? "ALL-IN" : "满池", add: potCapAdd }
   ];
   const quickAmounts = quickAdds.map((q) => {
+    if (q.key === "max" && canOnlyAllIn) {
+      return { key: q.key, label: q.label, amount: meBet + stack, disabled: stack <= 0 };
+    }
     const totalTarget = canOpenBet ? q.add : snapshot.toCall + q.add;
     const bounded = Math.max(snapshot.minRaise + snapshot.toCall, Math.min(totalTarget, meBet + stack));
     return { key: q.key, label: q.label, amount: bounded, disabled: bounded <= snapshot.toCall || stack <= 0 };
   });
+  const selfActionBadge = mySeatIndex === null ? undefined : seatActionBadges[mapRealSeatToUiSeat(mySeatIndex)];
   const kickConfirmName =
     kickConfirmTargetId === null
       ? ""
@@ -263,13 +329,28 @@ export function Table({
   return (
     <main className="screen table">
       <header className="table-head top-pot compact-head">
-        <h2 className="table-title">房间号 #{snapshot.roomCode}</h2>
+        <h2 className="table-title table-title-copy" role="button" tabIndex={0} onClick={() => { void copyRoomCode(); }} onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            void copyRoomCode();
+          }
+        }}>
+          房间号 #{snapshot.roomCode} {copiedRoom ? "（已复制）" : "（点击复制）"}
+        </h2>
       </header>
       {revealWindowActive && (
         <section className="inter-hand-banner" aria-live="polite">
           <span>
             下一局约 <strong>{revealSecondsLeft}</strong> 秒后开始 · 本局已自动亮牌
           </span>
+          <button
+            type="button"
+            className="reveal-ready-btn"
+            disabled={!canFastReady}
+            onClick={() => onFastReady(!isMyFastReady)}
+          >
+            {isMyFastReady ? "取消准备" : "准备好"}（{fastReadyCount}/{activeSeatedPlayers.length}）
+          </button>
         </section>
       )}
 
@@ -338,6 +419,7 @@ export function Table({
             player={bySeat.get(i)}
             role={roleBySeat.get(i)}
             actionBadge={seatActionBadges[i]}
+            chatMessages={bySeat.get(i) ? (seatChats[bySeat.get(i)!.playerId] ?? []).map((item) => item.message) : undefined}
             revealedCardTexts={revealedTextsBySeat.get(i)}
             isTurn={!pauseTurnHighlight && snapshot.currentTurnSeat !== null && mapRealSeatToUiSeat(snapshot.currentTurnSeat) === i}
             isWinner={Boolean(bySeat.get(i) && winnerByPlayerId.has(bySeat.get(i)!.playerId))}
@@ -417,7 +499,32 @@ export function Table({
       </section>
 
       <section className={`floating-hand ${snapshot.phase === "waiting" ? "hidden" : ""}`}>
-        <div className="hand-cards hand-cards-centered hand-cards-floating">
+        {chatOpen && (
+          <div className="floating-chat-box">
+            <input
+              ref={chatInputRef}
+              className="floating-chat-input"
+              value={chatMessage}
+              onChange={(e) => setChatMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  submitChat();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setChatOpen(false);
+                }
+              }}
+              placeholder="输入消息，回车发送"
+              maxLength={120}
+            />
+            <button type="button" className="floating-chat-send" onClick={submitChat}>
+              发送
+            </button>
+          </div>
+        )}
+        {isMeWinner && <div className="floating-winner-banner">🥇 WINNER 🎉</div>}
+        <div className={`hand-cards hand-cards-centered hand-cards-floating ${isMeWinner ? "winner-cards-glow" : ""}`}>
           {hideMyCards
             ? myCards.map((c, idx) => (
                 <span key={`${c}-${idx}`} className="card-face back">🂠</span>
@@ -436,6 +543,24 @@ export function Table({
             {hideMyCards ? "👁️" : "🙈"}
           </button>
         </div>
+        {mePlayer && (
+          <div className="self-seat-info">
+            <div className="seat-head">
+              <strong className="seat-name">{mePlayer.nickname}</strong>
+              <span className="seat-stack">筹码 {mePlayer.stack}</span>
+              {selfActionBadge && <span className="action-badge action-badge-inline">{selfActionBadge}</span>}
+            </div>
+            {myChatMessages.length > 0 && (
+              <div className="seat-chat-bubble-stack self-chat-bubble-stack">
+                {myChatMessages.map((message, idx) => (
+                  <div key={`${message}-${idx}`} className="seat-chat-bubble">
+                    {message}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {isSpectator && (
           <div className="spectator-note">
             你当前为观战席（筹码不足或未入座）。默认不广播他人底牌；结算后会自动亮牌展示。若服务端设置{" "}

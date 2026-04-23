@@ -15,7 +15,7 @@
 
 - **典型场景**：同一办公室局域网内访问；未实现登录鉴权，任意知道房间码的用户可加入。
 - **规则与牌力**：当前为演示级 MVP，牌型评估与部分边界规则为简化实现，**不宜作为公平竞技或真金依据**。
-- **公网**：默认不应将服务端口直接暴露到公网；若必须外网访问，应自行增加认证、TLS、限流与审计。
+- **公网**：现在支持通过 `cloudflared tunnel` 做公网访问转发（见下文），但本项目本身仍未内建登录鉴权。若对外开放，请额外配置访问控制、TLS、限流与审计。
 
 更细的优化任务与验收项见 [`docs/optimization-tasks.md`](docs/optimization-tasks.md)。
 
@@ -57,6 +57,26 @@ Docker 部署时可在 `docker-compose` 或运行环境中注入上述变量。
 - `docker compose up --build`
 - 前端：`http://<内网IP>:5173`
 - 服务端：`http://<内网IP>:3001`
+
+## 公网访问（cloudflared）
+
+如果希望临时开放公网访问，推荐本地运行 `cloudflared` 将前端端口映射为 HTTPS 公网地址（无需直接暴露本机端口）。
+
+1. 本地正常启动
+   - `npm run dev:server`
+   - `npm run dev:frontend`
+2. 安装并登录 cloudflared（首次需要）
+   - [cloudflared 安装文档](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+   - `cloudflared tunnel login`
+3. 直接创建临时公网地址（快速方式）
+   - `cloudflared tunnel --url http://localhost:5173`
+4. 让前端连接到同一台机器的服务端
+   - 默认前端会连接 `http://<当前域名>:3001`。公网场景下请在前端启动前设置：
+   - `VITE_SERVER_URL=https://<你的服务端公网地址>`
+5. （可选）同时给服务端也开一个 tunnel
+   - `cloudflared tunnel --url http://localhost:3001`
+
+> 注意：tunnel 仅负责转发，不提供应用级鉴权。开放公网前请确认访问策略与风险可控。
 
 ## 协议要点
 

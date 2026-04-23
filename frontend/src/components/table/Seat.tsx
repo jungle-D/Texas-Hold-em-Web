@@ -13,6 +13,7 @@ interface SeatProps {
   isHost?: boolean;
   myPlayerId?: string;
   onKickPlayer?: (targetPlayerId: string) => void;
+  chatMessages?: string[];
 }
 
 export function Seat({
@@ -26,7 +27,8 @@ export function Seat({
   winnerHandName,
   isHost,
   myPlayerId,
-  onKickPlayer
+  onKickPlayer,
+  chatMessages
 }: SeatProps): JSX.Element {
   if (!player) {
     return <></>;
@@ -38,6 +40,7 @@ export function Seat({
         <strong className="seat-name">{player.nickname}</strong>
         <span className="seat-stack">筹码 {player.stack}</span>
         {isWinner && <span className="winner-tag">WINNER 🏆</span>}
+        {actionBadge && <span className="action-badge action-badge-inline">{actionBadge}</span>}
         {isHost && onKickPlayer && myPlayerId && player.playerId !== myPlayerId && (
           <button
             type="button"
@@ -55,7 +58,15 @@ export function Seat({
       {role && <span className={`role-tag ${role.toLowerCase()}`}>{role}</span>}
       <span className="seat-state">{player.hasFolded ? "已弃牌" : player.isAllIn ? "ALL-IN" : "进行中"}</span>
       {isWinner && winnerHandName && <span className="winner-hand">牌型：{winnerHandName}</span>}
-      {actionBadge && <span className="action-badge">{actionBadge}</span>}
+      {chatMessages && chatMessages.length > 0 && (
+        <div className="seat-chat-bubble-stack">
+          {chatMessages.map((message, idx) => (
+            <div key={`${message}-${idx}`} className="seat-chat-bubble">
+              {message}
+            </div>
+          ))}
+        </div>
+      )}
       {revealedCardTexts && revealedCardTexts.length > 0 && (
         <div className="seat-revealed-cards" aria-label="本局亮牌">
           {revealedCardTexts.map((t, idx) => (

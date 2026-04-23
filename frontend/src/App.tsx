@@ -16,6 +16,7 @@ export function App(): JSX.Element {
   const [spectatorHands, setSpectatorHands] = useState<Array<{ seatIndex: number; nickname: string; cards: string[] }>>([]);
   const [lastAppliedAction, setLastAppliedAction] = useState<{ seatIndex: number; action: string; amount: number } | null>(null);
   const [winners, setWinners] = useState<Array<{ playerId: string; seatIndex: number; amount: number; handName: string }>>([]);
+  const [seatChats, setSeatChats] = useState<Record<string, Array<{ id: string; message: string; ts: number }>>>({});
 
   useEffect(() => {
     socket.on("room.snapshot", (room) => {
@@ -46,6 +47,24 @@ export function App(): JSX.Element {
     socket.on("hand.ended", (payload) => {
       setWinners(payload.winners);
     });
+    socket.on("chat.message", (payload) => {
+      const msgId = `${payload.playerId}-${payload.ts}-${Math.random().toString(36).slice(2, 8)}`;
+      setSeatChats((prev) => ({
+        ...prev,
+        [payload.playerId]: [...(prev[payload.playerId] ?? []), { id: msgId, message: payload.message, ts: payload.ts }].slice(-5)
+      }));
+      window.setTimeout(() => {
+        setSeatChats((prev) => {
+          const list = prev[payload.playerId] ?? [];
+          const nextList = list.filter((item) => item.id !== msgId);
+          if (nextList.length === list.length) return prev;
+          const next = { ...prev };
+          if (nextList.length === 0) delete next[payload.playerId];
+          else next[payload.playerId] = nextList;
+          return next;
+        });
+      }, 5000);
+    });
     socket.on("room.kicked", ({ message }) => {
       // eslint-disable-next-line no-alert
       alert(message);
@@ -55,6 +74,7 @@ export function App(): JSX.Element {
       setSpectatorHands([]);
       setLastAppliedAction(null);
       setWinners([]);
+      setSeatChats({});
       setView({ kind: "lobby" });
     });
     socket.on("error.invalidAction", (err) => {
@@ -70,6 +90,7 @@ export function App(): JSX.Element {
       socket.off("table.hands");
       socket.off("board.updated");
       socket.off("hand.ended");
+      socket.off("chat.message");
       socket.off("room.kicked");
       socket.off("error.invalidAction");
     };
@@ -101,6 +122,7 @@ export function App(): JSX.Element {
       lastAppliedAction={lastAppliedAction}
       spectatorHands={spectatorHands}
       winners={winners}
+      seatChats={seatChats}
       hostPlayerId={view.hostPlayerId}
       onStartHand={() => socket.emit("hand.start")}
       onFold={() => socket.emit("action.fold")}
@@ -110,6 +132,8 @@ export function App(): JSX.Element {
       onRaise={(amount) => socket.emit("action.raise", { amount })}
       onAllIn={() => socket.emit("action.allin")}
       onKickPlayer={(targetPlayerId) => socket.emit("room.kick", { targetPlayerId })}
+      onFastReady={(ready) => socket.emit("hand.fastReady", { ready })}
+      onSendChat={(message) => socket.emit("chat.send", { message })}
     />
   );
 }

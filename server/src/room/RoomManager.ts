@@ -12,6 +12,8 @@ export interface RoomState {
   interHandRevealUntil: number | null;
   /** 玩家是否选择在局间亮牌 */
   interHandReveal: Record<string, boolean>;
+  /** 自动亮牌窗口中，已点击“准备好”的玩家 */
+  fastReady: Record<string, boolean>;
   players: TablePlayer[];
   table: TableStateMachine;
 }
@@ -32,6 +34,7 @@ export class RoomManager {
       actionHistory: [],
       interHandRevealUntil: null,
       interHandReveal: {},
+      fastReady: {},
       players,
       table: new TableStateMachine(players)
     };
@@ -89,6 +92,9 @@ export class RoomManager {
       actionHistory: room.actionHistory,
       interHandRevealUntil: room.interHandRevealUntil,
       revealedHands,
+      fastReadyPlayerIds: Object.entries(room.fastReady)
+        .filter(([, ready]) => ready)
+        .map(([playerId]) => playerId),
       players: room.players.map((p) => ({
         playerId: p.playerId,
         nickname: p.nickname,
